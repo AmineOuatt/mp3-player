@@ -123,6 +123,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
   Duration _loopEnd = Duration.zero;
 
   List<double> _waveformSamples = [];
+  String _segmentSearchQuery = "";
 
   @override
   void initState() {
@@ -478,6 +479,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
   }
 
   void _openLibraryPanel() {
+    String librarySearchQuery = "";
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -486,66 +488,124 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) {
-        return FractionallySizedBox(
-          heightFactor: 0.72,
-          child: Column(
-            children: [
-              Container(
-                margin: const EdgeInsets.only(top: 12, bottom: 8),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[700],
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Text(
-                  "Audio Library",
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-              ),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: _library.length,
-                  itemBuilder: (context, index) {
-                    final item = _library[index];
-                    return ListTile(
-                      leading: const Icon(
-                        Icons.audiotrack,
-                        color: Color(0xFF1DB954),
-                      ),
-                      title: Text(
-                        item.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text(
-                        "${item.segments.length} segments saved",
-                        style: const TextStyle(color: Colors.grey),
-                      ),
-                      trailing: IconButton(
-                        icon: const Icon(
-                          Icons.edit,
-                          color: Colors.grey,
-                          size: 20,
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final filteredLibrary = _library
+                .where(
+                  (e) => e.name.toLowerCase().contains(
+                    librarySearchQuery.toLowerCase(),
+                  ),
+                )
+                .toList();
+
+            return FractionallySizedBox(
+              heightFactor: 0.72,
+              child: Column(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 12, bottom: 8),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[700],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          "Audio Library",
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                        onPressed: () {
-                          // pop the panel first optionally, or keep it open. Keep it open is fine.
-                          _editLibraryAudioName(item);
-                        },
-                      ),
-                      onTap: () {
-                        Navigator.pop(context);
-                        _loadFile(item.path, item.name);
-                      },
-                    );
-                  },
-                ),
+                        SizedBox(
+                          width: 150,
+                          child: TextField(
+                            decoration: InputDecoration(
+                              hintText: "Search...",
+                              hintStyle: const TextStyle(
+                                color: Colors.grey,
+                                fontSize: 13,
+                              ),
+                              isDense: true,
+                              prefixIcon: const Icon(
+                                Icons.search,
+                                size: 16,
+                                color: Colors.grey,
+                              ),
+                              contentPadding: EdgeInsets.zero,
+                              filled: true,
+                              fillColor: const Color(0xFF282828),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(20),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                            ),
+                            onChanged: (val) {
+                              setModalState(() => librarySearchQuery = val);
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: filteredLibrary.isEmpty
+                        ? const Center(
+                            child: Text(
+                              "No items found.",
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: filteredLibrary.length,
+                            itemBuilder: (context, index) {
+                              final item = filteredLibrary[index];
+                              return ListTile(
+                                leading: const Icon(
+                                  Icons.audiotrack,
+                                  color: Color(0xFF1DB954),
+                                ),
+                                title: Text(
+                                  item.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  "${item.segments.length} segments saved",
+                                  style: const TextStyle(color: Colors.grey),
+                                ),
+                                trailing: IconButton(
+                                  icon: const Icon(
+                                    Icons.edit,
+                                    color: Colors.grey,
+                                    size: 20,
+                                  ),
+                                  onPressed: () {
+                                    _editLibraryAudioName(item);
+                                  },
+                                ),
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  _loadFile(item.path, item.name);
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -946,14 +1006,53 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Padding(
-                        padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
-                        child: Text(
-                          "Saved Segments",
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              "Saved Segments",
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (_currentEntry != null &&
+                                _currentEntry!.segments.isNotEmpty)
+                              SizedBox(
+                                width: 140,
+                                child: TextField(
+                                  decoration: InputDecoration(
+                                    hintText: "Search...",
+                                    hintStyle: const TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 13,
+                                    ),
+                                    isDense: true,
+                                    prefixIcon: const Icon(
+                                      Icons.search,
+                                      size: 16,
+                                      color: Colors.grey,
+                                    ),
+                                    contentPadding: EdgeInsets.zero,
+                                    filled: true,
+                                    fillColor: const Color(0xFF282828),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(20),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                  ),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                  ),
+                                  onChanged: (val) {
+                                    setState(() => _segmentSearchQuery = val);
+                                  },
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                       Expanded(
@@ -966,82 +1065,114 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                   style: TextStyle(color: Colors.grey),
                                 ),
                               )
-                            : ReorderableListView.builder(
-                                itemCount: _currentEntry!.segments.length,
-                                onReorder: (oldIndex, newIndex) {
-                                  setState(() {
-                                    if (newIndex > oldIndex) newIndex -= 1;
-                                    final item = _currentEntry!.segments
-                                        .removeAt(oldIndex);
-                                    _currentEntry!.segments.insert(
-                                      newIndex,
-                                      item,
+                            : Builder(
+                                builder: (context) {
+                                  final filteredSegments = _currentEntry!
+                                      .segments
+                                      .where(
+                                        (s) => s.name.toLowerCase().contains(
+                                          _segmentSearchQuery.toLowerCase(),
+                                        ),
+                                      )
+                                      .toList();
+
+                                  if (filteredSegments.isEmpty) {
+                                    return const Center(
+                                      child: Text(
+                                        "No matching segments.",
+                                        style: TextStyle(color: Colors.grey),
+                                      ),
                                     );
-                                  });
-                                  _upsertAudioEntry();
-                                },
-                                itemBuilder: (context, index) {
-                                  final segment =
-                                      _currentEntry!.segments[index];
-                                  final isSelected =
-                                      _loopStart == segment.start &&
-                                      _loopEnd == segment.end;
-                                  final titleColor = isSelected
-                                      ? const Color(0xFF1DB954)
-                                      : Colors.white;
-                                  return ListTile(
-                                    key: ValueKey(segment.id),
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 20,
-                                      vertical: 4,
-                                    ),
-                                    title: Row(
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            segment.name,
-                                            style: TextStyle(
-                                              color: titleColor,
-                                              fontWeight: FontWeight.w600,
+                                  }
+
+                                  return ReorderableListView.builder(
+                                    itemCount: filteredSegments.length,
+                                    onReorder: (oldIndex, newIndex) {
+                                      // Disable reordering when filtering since indices won't match
+                                      if (_segmentSearchQuery.isNotEmpty)
+                                        return;
+
+                                      setState(() {
+                                        if (newIndex > oldIndex) newIndex -= 1;
+                                        final item = _currentEntry!.segments
+                                            .removeAt(oldIndex);
+                                        _currentEntry!.segments.insert(
+                                          newIndex,
+                                          item,
+                                        );
+                                      });
+                                      _upsertAudioEntry();
+                                    },
+                                    itemBuilder: (context, index) {
+                                      final segment = filteredSegments[index];
+                                      final isSelected =
+                                          _loopStart == segment.start &&
+                                          _loopEnd == segment.end;
+                                      final titleColor = isSelected
+                                          ? const Color(0xFF1DB954)
+                                          : Colors.white;
+
+                                      return ListTile(
+                                        key: ValueKey(segment.id),
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 20,
+                                              vertical: 4,
                                             ),
+                                        title: Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                segment.name,
+                                                style: TextStyle(
+                                                  color: titleColor,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ),
+                                            IconButton(
+                                              icon: const Icon(
+                                                Icons.edit,
+                                                color: Colors.grey,
+                                                size: 18,
+                                              ),
+                                              onPressed: () =>
+                                                  _editSegmentName(segment),
+                                            ),
+                                          ],
+                                        ),
+                                        subtitle: Text(
+                                          "${_formatDuration(segment.start)} - ${_formatDuration(segment.end)}",
+                                          style: TextStyle(
+                                            color: isSelected
+                                                ? const Color(
+                                                    0xFF1DB954,
+                                                  ).withAlpha(204)
+                                                : Colors.grey,
                                           ),
                                         ),
-                                        IconButton(
+                                        trailing: IconButton(
                                           icon: const Icon(
-                                            Icons.edit,
-                                            color: Colors.grey,
-                                            size: 18,
+                                            Icons.delete_outline,
+                                            color: Colors.redAccent,
                                           ),
                                           onPressed: () =>
-                                              _editSegmentName(segment),
+                                              _deleteSegment(segment),
                                         ),
-                                      ],
-                                    ),
-                                    subtitle: Text(
-                                      "${_formatDuration(segment.start)} - ${_formatDuration(segment.end)}",
-                                      style: TextStyle(
-                                        color: isSelected
-                                            ? const Color(
-                                                0xFF1DB954,
-                                              ).withAlpha(204)
-                                            : Colors.grey,
-                                      ),
-                                    ),
-                                    trailing: IconButton(
-                                      icon: const Icon(
-                                        Icons.delete_outline,
-                                        color: Colors.redAccent,
-                                      ),
-                                      onPressed: () => _deleteSegment(segment),
-                                    ),
-                                    onTap: () {
-                                      _player.seek(segment.start);
-                                      _player.play();
-                                      setState(() {
-                                        _loopStart = segment.start;
-                                        _loopEnd = segment.end;
-                                      });
-                                      _openSegmentPlayer(index);
+                                        onTap: () {
+                                          _player.seek(segment.start);
+                                          _player.play();
+                                          setState(() {
+                                            _loopStart = segment.start;
+                                            _loopEnd = segment.end;
+                                          });
+                                          // Find the correct absolute index for the SegmentPlayer
+                                          int originalIndex = _currentEntry!
+                                              .segments
+                                              .indexOf(segment);
+                                          _openSegmentPlayer(originalIndex);
+                                        },
+                                      );
                                     },
                                   );
                                 },
