@@ -9,6 +9,8 @@ import 'package:just_audio/just_audio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'quran_browser.dart';
+
 // --- DATA MODELS ---
 
 class LoopBookmark {
@@ -187,6 +189,34 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
     await _prefs?.setString('library', libraryJson);
   }
 
+  void _openOnlineQuranBrowser() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const QuranBrowserMode(),
+        fullscreenDialog: true,
+      ),
+    );
+
+    // If an audio was selected and downloaded or used online
+    if (result != null && result is Map) {
+      String path = result['path'].toString();
+      String filename = result['name'].toString();
+
+      // Auto-load it into the library
+      bool exists = _library.any((entry) => entry.path == path);
+      if (!exists) {
+        setState(() {
+          _library.add(
+            SavedAudioEntry(path: path, name: filename, segments: []),
+          );
+        });
+        _saveLibrary();
+      }
+      _loadFile(path, filename);
+    }
+  }
+
   Future<void> _importAudio() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -203,7 +233,11 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
 
   Future<void> _loadFile(String path, String name) async {
     try {
-      await _player.setFilePath(path);
+      if (path.startsWith('http://') || path.startsWith('https://')) {
+        await _player.setUrl(path);
+      } else {
+        await _player.setFilePath(path);
+      }
 
       // Update library
       int index = _library.indexWhere((e) => e.path == path);
@@ -584,15 +618,38 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                   "${item.segments.length} segments saved",
                                   style: const TextStyle(color: Colors.grey),
                                 ),
-                                trailing: IconButton(
-                                  icon: const Icon(
-                                    Icons.edit,
-                                    color: Colors.grey,
-                                    size: 20,
-                                  ),
-                                  onPressed: () {
-                                    _editLibraryAudioName(item);
-                                  },
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.edit,
+                                        color: Colors.grey,
+                                        size: 20,
+                                      ),
+                                      onPressed: () {
+                                        _editLibraryAudioName(item);
+                                      },
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.delete,
+                                        color: Colors.redAccent,
+                                        size: 20,
+                                      ),
+                                      onPressed: () {
+                                        setState(() {
+                                          _library.remove(item);
+                                          if (_currentEntry == item) {
+                                            _currentEntry = null;
+                                            _player.stop();
+                                          }
+                                        });
+                                        _saveLibrary();
+                                        setModalState(() {});
+                                      },
+                                    ),
+                                  ],
                                 ),
                                 onTap: () {
                                   Navigator.pop(context);
@@ -685,6 +742,11 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
             onPressed: _openLibraryPanel,
           ),
           actions: [
+            IconButton(
+              tooltip: "Browse Quran API",
+              icon: const Icon(Icons.cloud_outlined, color: Colors.white),
+              onPressed: _openOnlineQuranBrowser,
+            ),
             IconButton(
               icon: const Icon(Icons.file_upload, color: Color(0xFF1DB954)),
               onPressed: _importAudio,
