@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -17,7 +17,7 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
   // English UI items, Arabic search capable endpoints
   List<dynamic> _reciters = [];
   List<dynamic> _suwar = [];
-  
+
   bool _isLoading = true;
   String _searchQuery = "";
   List<String> _favoriteReciterIds = [];
@@ -36,11 +36,16 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
     setState(() => _isLoading = true);
 
     try {
-      // Endpoints configured with ar to allow Arabic search data returned, 
-      final suwarResponse = await http.get(Uri.parse('https://mp3quran.net/api/v3/suwar?language=ar'));
-      final recitersResponse = await http.get(Uri.parse('https://mp3quran.net/api/v3/reciters?language=ar'));
+      // Endpoints configured with ar to allow Arabic search data returned,
+      final suwarResponse = await http.get(
+        Uri.parse('https://mp3quran.net/api/v3/suwar?language=ar'),
+      );
+      final recitersResponse = await http.get(
+        Uri.parse('https://mp3quran.net/api/v3/reciters?language=ar'),
+      );
 
-      if (suwarResponse.statusCode == 200 && recitersResponse.statusCode == 200) {
+      if (suwarResponse.statusCode == 200 &&
+          recitersResponse.statusCode == 200) {
         setState(() {
           _suwar = jsonDecode(suwarResponse.body)['suwar'];
           _reciters = jsonDecode(recitersResponse.body)['reciters'];
@@ -65,11 +70,12 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
   }
 
   void _openReciter(dynamic reciter) async {
-    if (reciter['moshaf'] == null || (reciter['moshaf'] as List).isEmpty) return;
-    
+    if (reciter['moshaf'] == null || (reciter['moshaf'] as List).isEmpty)
+      return;
+
     // Automatically select the first moshaf
     final moshaf = reciter['moshaf'][0];
-    
+
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -103,27 +109,26 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
         elevation: 0,
         title: const Text(
           "Audio Library",
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: Colors.white),
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 22,
+            color: Colors.white,
+          ),
         ),
       ),
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF202020),
-              Color(0xFF121212),
-            ],
-            stops: [0.0, 0.3],
-          ),
-        ),
+        color: const Color(0xFF121212),
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator(color: Color(0xFF1DB954)))
+            ? const Center(
+                child: CircularProgressIndicator(color: Color(0xFF1DB954)),
+              )
             : Column(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16.0,
+                      vertical: 12.0,
+                    ),
                     child: Row(
                       children: [
                         Expanded(
@@ -134,13 +139,21 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: TextField(
-                              style: const TextStyle(color: Colors.black, fontSize: 14),
+                              style: const TextStyle(
+                                color: Colors.black,
+                                fontSize: 14,
+                              ),
                               decoration: const InputDecoration(
-                                prefixIcon: Icon(Icons.search, color: Colors.black54),
+                                prefixIcon: Icon(
+                                  Icons.search,
+                                  color: Colors.black54,
+                                ),
                                 hintText: 'Search reciters...',
                                 hintStyle: TextStyle(color: Colors.black54),
                                 border: InputBorder.none,
-                                contentPadding: EdgeInsets.symmetric(vertical: 10),
+                                contentPadding: EdgeInsets.symmetric(
+                                  vertical: 10,
+                                ),
                               ),
                               onChanged: (val) {
                                 setState(() {
@@ -153,13 +166,19 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
                         const SizedBox(width: 12),
                         Container(
                           decoration: BoxDecoration(
-                            color: _showFavoritesOnly ? const Color(0xFF1DB954) : Colors.transparent,
+                            color: _showFavoritesOnly
+                                ? const Color(0xFF1DB954)
+                                : Colors.transparent,
                             shape: BoxShape.circle,
                           ),
                           child: IconButton(
                             icon: Icon(
-                              _showFavoritesOnly ? Icons.favorite : Icons.favorite_border,
-                              color: _showFavoritesOnly ? Colors.white : Colors.white70,
+                              _showFavoritesOnly
+                                  ? Icons.favorite
+                                  : Icons.favorite_border,
+                              color: _showFavoritesOnly
+                                  ? Colors.white
+                                  : Colors.white70,
                             ),
                             onPressed: () {
                               setState(() {
@@ -180,24 +199,38 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
                         final id = r['id'].toString();
                         final isFav = _favoriteReciterIds.contains(id);
                         return ListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 4,
+                          ),
                           leading: const CircleAvatar(
                             backgroundColor: Color(0xFF282828),
                             radius: 25,
-                            child: Icon(Icons.person_outline, color: Colors.white70),
+                            child: Icon(
+                              Icons.person_outline,
+                              color: Colors.white70,
+                            ),
                           ),
                           title: Text(
                             r['name'],
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                           subtitle: const Text(
                             "Reciter",
-                            style: TextStyle(color: Colors.white54, fontSize: 12),
+                            style: TextStyle(
+                              color: Colors.white54,
+                              fontSize: 12,
+                            ),
                           ),
                           trailing: IconButton(
                             icon: Icon(
                               isFav ? Icons.favorite : Icons.favorite_border,
-                              color: isFav ? const Color(0xFF1DB954) : Colors.white54,
+                              color: isFav
+                                  ? const Color(0xFF1DB954)
+                                  : Colors.white54,
                             ),
                             onPressed: () => _toggleFavorite(id),
                           ),
@@ -279,17 +312,22 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
 
   Future<void> _deleteSurah(dynamic surah) async {
     if (_localDirPath == null) return;
-    final filename = "${widget.reciterName}_${surah['name']}.mp3".replaceAll(RegExp(r'[\\/:*?"<>|]'), '');
+    final filename = "${widget.reciterName}_${surah['name']}.mp3".replaceAll(
+      RegExp(r'[\\/:*?"<>|]'),
+      '',
+    );
     final file = File('$_localDirPath/$filename');
     if (file.existsSync()) {
       try {
         file.deleteSync();
         if (mounted) setState(() {});
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Deleted Successfully"),
-          backgroundColor: Colors.redAccent,
-        ));
-      } catch(e) {}
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Deleted Successfully"),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      } catch (e) {}
     }
   }
 
@@ -329,10 +367,12 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
               _isDownloading = false;
               _downloadingSurahId = null;
             });
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text("Download Complete"),
-              backgroundColor: Color(0xFF1DB954),
-            ));
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("Download Complete"),
+                backgroundColor: Color(0xFF1DB954),
+              ),
+            );
           }
         },
         onError: (e) {
@@ -372,21 +412,14 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
         ),
       ),
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF282828),
-              Color(0xFF121212),
-            ],
-            stops: [0.0, 0.4],
-          ),
-        ),
+        color: const Color(0xFF121212),
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16.0,
+                vertical: 12.0,
+              ),
               child: Container(
                 height: 40,
                 decoration: BoxDecoration(
@@ -418,33 +451,48 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
                   final s = filteredSuwar[index];
                   final surahIdStr = s['id'].toString().padLeft(3, '0');
                   final url = "${widget.moshaf['server']}$surahIdStr.mp3";
-                  
-                  final filename = "${widget.reciterName}_${s['name']}.mp3".replaceAll(RegExp(r'[\\/:*?"<>|]'), '');
-                  final bool fileExists = _localDirPath != null && File('$_localDirPath/$filename').existsSync();
 
-                  final isThisDownloading = _isDownloading && _downloadingSurahId == s['id'].toString();
+                  final filename = "${widget.reciterName}_${s['name']}.mp3"
+                      .replaceAll(RegExp(r'[\\/:*?"<>|]'), '');
+                  final bool fileExists =
+                      _localDirPath != null &&
+                      File('$_localDirPath/$filename').existsSync();
+
+                  final isThisDownloading =
+                      _isDownloading &&
+                      _downloadingSurahId == s['id'].toString();
                   final isExpanded = _expandedSurahId == s['id'].toString();
 
                   return Column(
                     children: [
                       ListTile(
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
                         leading: CircleAvatar(
                           backgroundColor: Colors.transparent,
                           child: Text(
                             s['id'].toString(),
-                            style: const TextStyle(color: Colors.white70, fontSize: 16),
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 16,
+                            ),
                           ),
                         ),
                         title: Text(
                           s['name'],
                           style: TextStyle(
-                            color: isExpanded ? const Color(0xFF1DB954) : Colors.white, 
+                            color: isExpanded
+                                ? const Color(0xFF1DB954)
+                                : Colors.white,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                         trailing: Icon(
-                          isExpanded ? Icons.keyboard_arrow_up : Icons.more_horiz,
+                          isExpanded
+                              ? Icons.keyboard_arrow_up
+                              : Icons.more_horiz,
                           color: Colors.white54,
                         ),
                         onTap: () async {
@@ -467,8 +515,11 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
                       ),
                       if (isExpanded)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          color: Colors.black26,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          color: const Color(0xFF121212),
                           child: Column(
                             children: [
                               Row(
@@ -483,7 +534,9 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
                                         shape: BoxShape.circle,
                                       ),
                                       child: Icon(
-                                        _isPlayingPreview ? Icons.pause : Icons.play_arrow,
+                                        _isPlayingPreview
+                                            ? Icons.pause
+                                            : Icons.play_arrow,
                                         color: Colors.black,
                                         size: 28,
                                       ),
@@ -497,31 +550,47 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
                                         return StreamBuilder<Duration?>(
                                           stream: _player.durationStream,
                                           builder: (context, durSnap) {
-                                             final pos = posSnap.data ?? Duration.zero;
-                                             final dur = durSnap.data ?? Duration.zero;
-                                             double max = dur.inMilliseconds.toDouble();
-                                             double val = pos.inMilliseconds.toDouble();
-                                             if (val > max) val = max;
-                                             if (max == 0) max = 1;
-                                             return SliderTheme(
-                                               data: SliderTheme.of(context).copyWith(
-                                                  trackHeight: 4.0,
-                                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
-                                                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
-                                               ),
-                                               child: Slider(
-                                                  value: val,
-                                                  max: max,
-                                                  activeColor: const Color(0xFF1DB954),
-                                                  inactiveColor: Colors.white24,
-                                                  onChanged: (v) {
-                                                    _player.seek(Duration(milliseconds: v.toInt()));
-                                                  },
-                                               ),
-                                             );
-                                          }
+                                            final pos =
+                                                posSnap.data ?? Duration.zero;
+                                            final dur =
+                                                durSnap.data ?? Duration.zero;
+                                            double max = dur.inMilliseconds
+                                                .toDouble();
+                                            double val = pos.inMilliseconds
+                                                .toDouble();
+                                            if (val > max) val = max;
+                                            if (max == 0) max = 1;
+                                            return SliderTheme(
+                                              data: SliderTheme.of(context).copyWith(
+                                                trackHeight: 4.0,
+                                                thumbShape:
+                                                    const RoundSliderThumbShape(
+                                                      enabledThumbRadius: 6.0,
+                                                    ),
+                                                overlayShape:
+                                                    const RoundSliderOverlayShape(
+                                                      overlayRadius: 12.0,
+                                                    ),
+                                              ),
+                                              child: Slider(
+                                                value: val,
+                                                max: max,
+                                                activeColor: const Color(
+                                                  0xFF1DB954,
+                                                ),
+                                                inactiveColor: Colors.white24,
+                                                onChanged: (v) {
+                                                  _player.seek(
+                                                    Duration(
+                                                      milliseconds: v.toInt(),
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                            );
+                                          },
                                         );
-                                      }
+                                      },
                                     ),
                                   ),
                                 ],
@@ -534,12 +603,23 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: Colors.transparent,
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(20),
-                                          side: const BorderSide(color: Color(0xFF1DB954)),
+                                          borderRadius: BorderRadius.circular(
+                                            20,
+                                          ),
+                                          side: const BorderSide(
+                                            color: Color(0xFF1DB954),
+                                          ),
                                         ),
-                                        foregroundColor: const Color(0xFF1DB954),
+                                        foregroundColor: const Color(
+                                          0xFF1DB954,
+                                        ),
                                       ),
-                                      onPressed: () => _useAudioDirectly(s, fileExists ? '$_localDirPath/$filename' : url),
+                                      onPressed: () => _useAudioDirectly(
+                                        s,
+                                        fileExists
+                                            ? '$_localDirPath/$filename'
+                                            : url,
+                                      ),
                                       child: const Text("Use Audio"),
                                     ),
                                   ),
@@ -559,13 +639,19 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
                                     )
                                   else if (fileExists)
                                     IconButton(
-                                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        color: Colors.redAccent,
+                                      ),
                                       tooltip: "Delete",
                                       onPressed: () => _deleteSurah(s),
                                     )
                                   else
                                     IconButton(
-                                      icon: const Icon(Icons.download_for_offline, color: Colors.white70),
+                                      icon: const Icon(
+                                        Icons.download_for_offline,
+                                        color: Colors.white70,
+                                      ),
                                       onPressed: () => _downloadSurah(s, url),
                                       tooltip: "Download",
                                     ),
@@ -573,7 +659,7 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
                               ),
                             ],
                           ),
-                        )
+                        ),
                     ],
                   );
                 },
