@@ -775,7 +775,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
             children: [
               // Upper Workspace: Waveform & Playback Controls
               Expanded(
-                flex: 4,
+                flex: 5,
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
                   child: LayoutBuilder(
@@ -1087,7 +1087,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
 
               // Lower Workspace: Segment List
               Expanded(
-                flex: 3,
+                flex: 2,
                 child: Container(
                   decoration: const BoxDecoration(color: Color(0xFF121212)),
                   child: Column(

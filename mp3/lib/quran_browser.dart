@@ -18,6 +18,10 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
   List<dynamic> _reciters = [];
   List<dynamic> _suwar = [];
 
+  // Riwaya filter (e.g., Hafs, Warsh, Qalun)
+  List<String> _riwayat = ['All'];
+  String _selectedRiwaya = 'All';
+
   bool _isLoading = true;
   String _searchQuery = "";
   List<String> _favoriteReciterIds = [];
@@ -27,6 +31,15 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
   void initState() {
     super.initState();
     _fetchData();
+  }
+
+  String? _extractRiwaya(dynamic reciter) {
+    if (reciter == null) return null;
+    if (reciter['rewaya'] != null) return reciter['rewaya'];
+    if (reciter['moshaf'] is List && reciter['moshaf'].isNotEmpty) {
+      return reciter['moshaf'][0]['rewaya'];
+    }
+    return null;
   }
 
   Future<void> _fetchData() async {
@@ -46,9 +59,18 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
 
       if (suwarResponse.statusCode == 200 &&
           recitersResponse.statusCode == 200) {
+        final reciters = jsonDecode(recitersResponse.body)['reciters'];
+        final riwayaSet = <String>{};
+        for (final r in reciters) {
+          final riwaya = _extractRiwaya(r);
+          if (riwaya != null && riwaya.trim().isNotEmpty) {
+            riwayaSet.add(riwaya);
+          }
+        }
         setState(() {
           _suwar = jsonDecode(suwarResponse.body)['suwar'];
-          _reciters = jsonDecode(recitersResponse.body)['reciters'];
+          _reciters = reciters;
+          _riwayat = ['All', ...riwayaSet.toList()..sort()];
           _isLoading = false;
         });
       }
@@ -97,9 +119,12 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
     List<dynamic> filtered = _reciters.where((r) {
       final name = r['name'].toString().toLowerCase();
       final id = r['id'].toString();
+      final riwaya = _extractRiwaya(r)?.toLowerCase() ?? '';
       bool matchesSearch = name.contains(_searchQuery.toLowerCase());
       bool matchesFav = !_showFavoritesOnly || _favoriteReciterIds.contains(id);
-      return matchesSearch && matchesFav;
+      bool matchesRiwaya =
+          _selectedRiwaya == 'All' || riwaya == _selectedRiwaya.toLowerCase();
+      return matchesSearch && matchesFav && matchesRiwaya;
     }).toList();
 
     return Scaffold(
@@ -190,6 +215,47 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
                       ],
                     ),
                   ),
+                  // Riwaya filter dropdown
+                  if (_riwayat.length > 1)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E1E1E),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white10),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              dropdownColor: const Color(0xFF1E1E1E),
+                              value: _selectedRiwaya,
+                              iconEnabledColor: Colors.white70,
+                              style: const TextStyle(color: Colors.white),
+                              items: _riwayat
+                                  .map(
+                                    (r) => DropdownMenuItem<String>(
+                                      value: r,
+                                      child: Text(r),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (val) {
+                                if (val == null) return;
+                                setState(() {
+                                  _selectedRiwaya = val;
+                                });
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   Expanded(
                     child: ListView.builder(
                       itemCount: filtered.length,
