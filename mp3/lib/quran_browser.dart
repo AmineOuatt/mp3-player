@@ -17,11 +17,19 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
   // English UI items, Arabic search capable endpoints
   List<dynamic> _reciters = [];
   List<dynamic> _suwar = [];
+  Map<String, String> _endpointStatus = {};
 
   bool _isLoading = true;
+  String? _errorMessage;
   String _searchQuery = "";
   List<String> _favoriteReciterIds = [];
   bool _showFavoritesOnly = false;
+
+  String _displayArabicName(dynamic item) {
+    final ar = (item['name_ar'] ?? '').toString().trim();
+    if (ar.isNotEmpty) return ar;
+    return (item['name'] ?? '').toString();
+  }
 
   @override
   void initState() {
@@ -33,67 +41,133 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
     final prefs = await SharedPreferences.getInstance();
     _favoriteReciterIds = prefs.getStringList('favorite_reciters') ?? [];
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+      _endpointStatus = {};
+    });
 
     try {
-      final responses = await Future.wait([
-        http.get(
-          Uri.parse('https://www.mp3quran.net/api/v3/suwar?language=eng'),
-        ),
-        http.get(
-          Uri.parse('https://www.mp3quran.net/api/v3/suwar?language=ar'),
-        ),
-        http.get(
-          Uri.parse('https://www.mp3quran.net/api/v3/reciters?language=eng'),
-        ),
-        http.get(
-          Uri.parse('https://www.mp3quran.net/api/v3/reciters?language=ar'),
-        ),
-      ]);
+      final suwarEngResult = await _fetchWithFallback(
+        'https://www.mp3quran.net/api/v3/suwar?language=eng',
+        'https://mp3quran.net/api/v3/suwar?language=eng',
+      );
+      final suwarArResult = await _fetchWithFallback(
+        'https://www.mp3quran.net/api/v3/suwar?language=ar',
+        'https://mp3quran.net/api/v3/suwar?language=ar',
+      );
+      final recitersEngResult = await _fetchWithFallback(
+        'https://www.mp3quran.net/api/v3/reciters?language=eng',
+        'https://mp3quran.net/api/v3/reciters?language=eng',
+      );
+      final recitersArResult = await _fetchWithFallback(
+        'https://www.mp3quran.net/api/v3/reciters?language=ar',
+        'https://mp3quran.net/api/v3/reciters?language=ar',
+      );
 
-      if (responses.every((r) => r.statusCode == 200)) {
-        List<dynamic> suwarEng = jsonDecode(responses[0].body)['suwar'];
-        List<dynamic> suwarAr = jsonDecode(
-          utf8.decode(responses[1].bodyBytes),
-        )['suwar'];
-        List<dynamic> recitersEng = jsonDecode(responses[2].body)['reciters'];
-        List<dynamic> recitersAr = jsonDecode(
-          utf8.decode(responses[3].bodyBytes),
-        )['reciters'];
+      final suwarEng = _decodeListResponse(suwarEngResult.key, 'suwar');
+      final suwarAr = _decodeListResponse(suwarArResult.key, 'suwar');
+      final recitersEng = _decodeListResponse(
+        recitersEngResult.key,
+        'reciters',
+      );
+      final recitersAr = _decodeListResponse(recitersArResult.key, 'reciters');
 
-        setState(() {
-          _suwar = suwarEng.map((eng) {
-            final ar = suwarAr.firstWhere(
-              (a) => a['id'] == eng['id'],
-              orElse: () => null,
-            );
-            return {
-              ...eng as Map,
-              'name_ar': ar != null ? ar['name'] : eng['name'],
-            };
-          }).toList();
+      final baseSuwar = suwarEng.isNotEmpty ? suwarEng : suwarAr;
+      final baseReciters = recitersEng.isNotEmpty ? recitersEng : recitersAr;
 
-          _reciters = recitersEng.map((eng) {
-            final ar = recitersAr.firstWhere(
-              (a) => a['id'] == eng['id'],
-              orElse: () => null,
-            );
-            return {
-              ...eng as Map,
-              'name_ar': ar != null ? ar['name'] : eng['name'],
-            };
-          }).toList();
+      final arSuwarById = {
+        for (final s in suwarAr)
+          s['id'].toString(): (s['name'] ?? '').toString(),
+      };
+      final arRecitersById = {
+        for (final r in recitersAr)
+          r['id'].toString(): (r['name'] ?? '').toString(),
+      };
 
-          _isLoading = false;
-        });
-      } else {
-        debugPrint("API Error");
-        if (mounted) setState(() => _isLoading = false);
-      }
+      final mergedSuwar = baseSuwar.map((raw) {
+        final item = Map<String, dynamic>.from(raw as Map);
+        item['name_ar'] = arSuwarById[item['id'].toString()] ?? item['name'];
+        return item;
+      }).toList();
+
+      final mergedReciters = baseReciters.map((raw) {
+        final item = Map<String, dynamic>.from(raw as Map);
+        item['name_ar'] = arRecitersById[item['id'].toString()] ?? item['name'];
+        return item;
+      }).toList();
+
+      if (!mounted) return;
+      setState(() {
+        _endpointStatus = {
+          'suwar_eng': suwarEngResult.value,
+          'suwar_ar': suwarArResult.value,
+          'reciters_eng': recitersEngResult.value,
+          'reciters_ar': recitersArResult.value,
+        };
+        _suwar = mergedSuwar;
+        _reciters = mergedReciters;
+        _isLoading = false;
+        if (_reciters.isEmpty) {
+          _errorMessage =
+              'Could not load imams. Check internet connection and try again.';
+        }
+      });
     } catch (e) {
       debugPrint("Exception fetching data: $e");
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage =
+              'Could not load imams. Check internet connection and try again.';
+          _endpointStatus['exception'] = e.toString();
+        });
+      }
     }
+  }
+
+  Future<MapEntry<http.Response?, String>> _fetchWithFallback(
+    String primaryUrl,
+    String secondaryUrl,
+  ) async {
+    final attempts = <String>[];
+
+    try {
+      final response = await http
+          .get(Uri.parse(primaryUrl))
+          .timeout(const Duration(seconds: 12));
+      if (response.statusCode == 200) {
+        return MapEntry(response, 'ok 200 via www');
+      }
+      attempts.add('www:${response.statusCode}');
+    } catch (e) {
+      attempts.add('www:err ${e.runtimeType}');
+    }
+
+    try {
+      final response = await http
+          .get(Uri.parse(secondaryUrl))
+          .timeout(const Duration(seconds: 12));
+      if (response.statusCode == 200) {
+        return MapEntry(response, 'ok 200 via root');
+      }
+      attempts.add('root:${response.statusCode}');
+    } catch (e) {
+      attempts.add('root:err ${e.runtimeType}');
+    }
+
+    return MapEntry(null, attempts.join(' | '));
+  }
+
+  List<dynamic> _decodeListResponse(http.Response? response, String key) {
+    if (response == null) return [];
+    try {
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      if (decoded is Map<String, dynamic> && decoded[key] is List) {
+        return decoded[key] as List<dynamic>;
+      }
+    } catch (_) {}
+    return [];
   }
 
   Future<void> _toggleFavorite(String id) async {
@@ -119,7 +193,7 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
       context,
       MaterialPageRoute(
         builder: (context) => SurahSelectionScreen(
-          reciterName: reciter['name'],
+          reciterName: _displayArabicName(reciter),
           moshaf: moshaf,
           suwarList: _suwar,
         ),
@@ -163,13 +237,34 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFF202020), Color(0xFF121212)],
-            stops: [0.0, 0.3],
+            colors: [Color(0xFF1F1F1F), Color(0xFF121212)],
+            stops: [0.0, 0.45],
           ),
         ),
         child: _isLoading
             ? const Center(
                 child: CircularProgressIndicator(color: Color(0xFF1DB954)),
+              )
+            : _errorMessage != null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _errorMessage!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton(
+                        onPressed: _fetchData,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
               )
             : Column(
                 children: [
@@ -240,53 +335,78 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
                     ),
                   ),
                   Expanded(
-                    child: ListView.builder(
-                      itemCount: filtered.length,
-                      padding: const EdgeInsets.only(bottom: 20),
-                      itemBuilder: (context, index) {
-                        final r = filtered[index];
-                        final id = r['id'].toString();
-                        final isFav = _favoriteReciterIds.contains(id);
-                        return ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 4,
-                          ),
-                          leading: const CircleAvatar(
-                            backgroundColor: Color(0xFF282828),
-                            radius: 25,
-                            child: Icon(
-                              Icons.person_outline,
-                              color: Colors.white70,
+                    child: filtered.isEmpty
+                        ? Center(
+                            child: Text(
+                              _searchQuery.isEmpty
+                                  ? 'No imams found.'
+                                  : 'No matching imams found.',
+                              style: const TextStyle(color: Colors.white54),
                             ),
+                          )
+                        : ListView.builder(
+                            itemCount: filtered.length,
+                            padding: const EdgeInsets.only(bottom: 20),
+                            itemBuilder: (context, index) {
+                              final r = filtered[index];
+                              final id = r['id'].toString();
+                              final isFav = _favoriteReciterIds.contains(id);
+                              return Container(
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF181818),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 6,
+                                  ),
+                                  leading: const CircleAvatar(
+                                    backgroundColor: Color(0xFF282828),
+                                    radius: 24,
+                                    child: Icon(
+                                      Icons.graphic_eq,
+                                      color: Color(0xFF1DB954),
+                                    ),
+                                  ),
+                                  title: Text(
+                                    _displayArabicName(r),
+                                    textDirection: TextDirection.rtl,
+                                    textAlign: TextAlign.right,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  subtitle: const Text(
+                                    "إمام",
+                                    textDirection: TextDirection.rtl,
+                                    textAlign: TextAlign.right,
+                                    style: TextStyle(
+                                      color: Colors.white54,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  trailing: IconButton(
+                                    icon: Icon(
+                                      isFav
+                                          ? Icons.favorite
+                                          : Icons.favorite_border,
+                                      color: isFav
+                                          ? const Color(0xFF1DB954)
+                                          : Colors.white54,
+                                    ),
+                                    onPressed: () => _toggleFavorite(id),
+                                  ),
+                                  onTap: () => _openReciter(r),
+                                ),
+                              );
+                            },
                           ),
-                          title: Text(
-                            r['name'],
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          subtitle: const Text(
-                            "Reciter",
-                            style: TextStyle(
-                              color: Colors.white54,
-                              fontSize: 12,
-                            ),
-                          ),
-                          trailing: IconButton(
-                            icon: Icon(
-                              isFav ? Icons.favorite : Icons.favorite_border,
-                              color: isFav
-                                  ? const Color(0xFF1DB954)
-                                  : Colors.white54,
-                            ),
-                            onPressed: () => _toggleFavorite(id),
-                          ),
-                          onTap: () => _openReciter(r),
-                        );
-                      },
-                    ),
                   ),
                 ],
               ),
@@ -321,11 +441,22 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
 
   final AudioPlayer _player = AudioPlayer();
   bool _isPlayingPreview = false;
+  String? _previewingSurahId;
 
   @override
   void initState() {
     super.initState();
     _initDir();
+    _player.playerStateStream.listen((state) {
+      if (!mounted) return;
+      final playing = state.playing;
+      if (!playing && _isPlayingPreview) {
+        setState(() {
+          _isPlayingPreview = false;
+          _previewingSurahId = null;
+        });
+      }
+    });
   }
 
   Future<void> _initDir() async {
@@ -343,14 +474,25 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
     super.dispose();
   }
 
-  Future<void> _previewAudio(String url) async {
-    if (_isPlayingPreview) {
-      await _player.pause();
-      if (mounted) setState(() => _isPlayingPreview = false);
+  Future<void> _previewAudio(String surahId, String url) async {
+    final isSameSurah = _previewingSurahId == surahId;
+    if (_isPlayingPreview && isSameSurah) {
+      await _player.stop();
+      if (mounted) {
+        setState(() {
+          _isPlayingPreview = false;
+          _previewingSurahId = null;
+        });
+      }
     } else {
       await _player.setUrl(url);
       await _player.play();
-      if (mounted) setState(() => _isPlayingPreview = true);
+      if (mounted) {
+        setState(() {
+          _isPlayingPreview = true;
+          _previewingSurahId = surahId;
+        });
+      }
     }
   }
 
@@ -489,7 +631,7 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
                   style: const TextStyle(color: Colors.black, fontSize: 14),
                   decoration: const InputDecoration(
                     prefixIcon: Icon(Icons.search, color: Colors.black54),
-                    hintText: 'Search surah...',
+                    hintText: 'ابحث عن السورة...',
                     hintStyle: TextStyle(color: Colors.black54),
                     border: InputBorder.none,
                     contentPadding: EdgeInsets.symmetric(vertical: 10),
@@ -521,6 +663,9 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
                       _isDownloading &&
                       _downloadingSurahId == s['id'].toString();
                   final isExpanded = _expandedSurahId == s['id'].toString();
+                  final isPreviewingThis =
+                      _isPlayingPreview &&
+                      _previewingSurahId == s['id'].toString();
 
                   return Column(
                     children: [
@@ -540,7 +685,9 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
                           ),
                         ),
                         title: Text(
-                          s['name'],
+                          (s['name_ar'] ?? s['name']).toString(),
+                          textDirection: TextDirection.rtl,
+                          textAlign: TextAlign.right,
                           style: TextStyle(
                             color: isExpanded
                                 ? const Color(0xFF1DB954)
@@ -559,13 +706,15 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
                             if (isExpanded) {
                               _expandedSurahId = null;
                               if (_isPlayingPreview) {
-                                _player.pause();
+                                _player.stop();
                                 _isPlayingPreview = false;
+                                _previewingSurahId = null;
                               }
                             } else {
                               if (_isPlayingPreview) {
-                                _player.pause();
+                                _player.stop();
                                 _isPlayingPreview = false;
+                                _previewingSurahId = null;
                               }
                               _expandedSurahId = s['id'].toString();
                             }
@@ -584,7 +733,8 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
                               Row(
                                 children: [
                                   GestureDetector(
-                                    onTap: () => _previewAudio(url),
+                                    onTap: () =>
+                                        _previewAudio(s['id'].toString(), url),
                                     child: Container(
                                       width: 40,
                                       height: 40,
@@ -593,8 +743,8 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
                                         shape: BoxShape.circle,
                                       ),
                                       child: Icon(
-                                        _isPlayingPreview
-                                            ? Icons.pause
+                                        isPreviewingThis
+                                            ? Icons.stop
                                             : Icons.play_arrow,
                                         color: Colors.black,
                                         size: 28,
