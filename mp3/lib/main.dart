@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -92,7 +92,9 @@ class AudioRepeaterApp extends StatelessWidget {
           secondary: Color(0xFF1ED760),
           surface: Color(0xFF181818),
         ),
-        textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
+        textTheme: GoogleFonts.plusJakartaSansTextTheme(
+          ThemeData.dark().textTheme,
+        ),
         useMaterial3: true,
       ),
       home: const AudioLooperScreen(),
@@ -286,6 +288,14 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
         _saveLibrary();
       }
     }
+  }
+
+  void _seekBy(Duration offset) {
+    final target = _position + offset;
+    final clamped = target < Duration.zero
+        ? Duration.zero
+        : (target > _duration ? _duration : target);
+    _player.seek(clamped);
   }
 
   void _saveSegment() {
@@ -517,7 +527,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF181818),
+      backgroundColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -534,62 +544,68 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
 
             return FractionallySizedBox(
               heightFactor: 0.72,
-              child: Column(
-                children: [
-                  Container(
-                    margin: const EdgeInsets.only(top: 12, bottom: 8),
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[700],
-                      borderRadius: BorderRadius.circular(2),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Color(0xFF121212),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                child: Column(
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.only(top: 12, bottom: 8),
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[700],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          "Audio Library",
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        SizedBox(
-                          width: 150,
-                          child: TextField(
-                            decoration: InputDecoration(
-                              hintText: "Search...",
-                              hintStyle: const TextStyle(
-                                color: Colors.grey,
-                                fontSize: 13,
-                              ),
-                              isDense: true,
-                              prefixIcon: const Icon(
-                                Icons.search,
-                                size: 16,
-                                color: Colors.grey,
-                              ),
-                              contentPadding: EdgeInsets.zero,
-                              filled: true,
-                              fillColor: const Color(0xFF282828),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(20),
-                                borderSide: BorderSide.none,
-                              ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            "Audio Library",
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
                             ),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                            ),
-                            onChanged: (val) {
-                              setModalState(() => librarySearchQuery = val);
-                            },
                           ),
-                        ),
-                      ],
+                          SizedBox(
+                            width: 150,
+                            child: TextField(
+                              decoration: InputDecoration(
+                                hintText: "Search...",
+                                hintStyle: const TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 13,
+                                ),
+                                isDense: true,
+                                prefixIcon: const Icon(
+                                  Icons.search,
+                                  size: 16,
+                                  color: Colors.grey,
+                                ),
+                                contentPadding: EdgeInsets.zero,
+                                filled: true,
+                                fillColor: const Color(0xFF282828),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: BorderSide.none,
+                                ),
+                              ),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                              ),
+                              onChanged: (val) {
+                                setModalState(() => librarySearchQuery = val);
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   Expanded(
@@ -699,17 +715,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFF282828), // Dark grey
-            Color(0xFF121212), // Deep black
-          ],
-          stops: [0.0, 0.4],
-        ),
-      ),
+      color: const Color(0xFF121212),
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
@@ -725,7 +731,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                     _currentEntry?.name ?? "No Audio Loaded",
                     style: const TextStyle(
                       fontSize: 16,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w700,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -781,7 +787,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF181818),
+                            color: const Color(0xFF181818).withAlpha(230),
                             borderRadius: BorderRadius.circular(16),
                           ),
                           child: CustomPaint(
@@ -894,7 +900,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Main Controls (+-5s around Play button)
+                      // Main Controls (+-5s seek around play button)
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -913,7 +919,6 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                           ),
                           const SizedBox(width: 16),
 
-                          // -5s
                           IconButton(
                             iconSize: 32,
                             icon: const Icon(
@@ -922,24 +927,10 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                             ),
                             onPressed: () {
                               HapticFeedback.selectionClick();
-                              setState(() {
-                                _loopStart = Duration(
-                                  milliseconds: max(
-                                    0,
-                                    _loopStart.inMilliseconds - 5000,
-                                  ),
-                                );
-                                _loopEnd = Duration(
-                                  milliseconds: max(
-                                    _loopStart.inMilliseconds,
-                                    _loopEnd.inMilliseconds - 5000,
-                                  ),
-                                );
-                              });
+                              _seekBy(const Duration(seconds: -5));
                             },
                           ),
 
-                          // Play/Pause
                           Container(
                             margin: const EdgeInsets.symmetric(horizontal: 8),
                             decoration: const BoxDecoration(
@@ -960,7 +951,6 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                             ),
                           ),
 
-                          // +5s
                           IconButton(
                             iconSize: 32,
                             icon: const Icon(
@@ -969,20 +959,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                             ),
                             onPressed: () {
                               HapticFeedback.selectionClick();
-                              setState(() {
-                                _loopEnd = Duration(
-                                  milliseconds: min(
-                                    _duration.inMilliseconds,
-                                    _loopEnd.inMilliseconds + 5000,
-                                  ),
-                                );
-                                _loopStart = Duration(
-                                  milliseconds: min(
-                                    _loopEnd.inMilliseconds,
-                                    _loopStart.inMilliseconds + 5000,
-                                  ),
-                                );
-                              });
+                              _seekBy(const Duration(seconds: 5));
                             },
                           ),
 
@@ -1059,12 +1036,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
               Expanded(
                 flex: 3,
                 child: Container(
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF121212),
-                    borderRadius: BorderRadius.vertical(
-                      top: Radius.circular(24),
-                    ),
-                  ),
+                  decoration: const BoxDecoration(color: Color(0xFF121212)),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1468,17 +1440,7 @@ class _SegmentPlayerScreenState extends State<SegmentPlayerScreen> {
               : currentSegmentPos);
 
     return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFF282828), // Dark grey
-            Color(0xFF121212), // Deep black
-          ],
-          stops: [0.0, 0.4],
-        ),
-      ),
+      color: const Color(0xFF121212),
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(

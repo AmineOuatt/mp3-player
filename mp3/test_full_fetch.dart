@@ -1,0 +1,1 @@
+import 'dart:convert'; import 'package:http/http.dart' as http; void main() async { try { final r = await http.get(Uri.parse('https://www.mp3quran.net/api/v3/reciters?language=ar')); print(jsonDecode(r.body)['reciters'].length); print(jsonDecode(utf8.decode(r.bodyBytes))['reciters'].length); } catch(e) { print('EXCEPTION: '); } }
