@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -607,75 +607,75 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                         ],
                       ),
                     ),
-                  ),
-                  Expanded(
-                    child: filteredLibrary.isEmpty
-                        ? const Center(
-                            child: Text(
-                              "No items found.",
-                              style: TextStyle(color: Colors.grey),
+                    Expanded(
+                      child: filteredLibrary.isEmpty
+                          ? const Center(
+                              child: Text(
+                                "No items found.",
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: filteredLibrary.length,
+                              itemBuilder: (context, index) {
+                                final item = filteredLibrary[index];
+                                return ListTile(
+                                  leading: const Icon(
+                                    Icons.audiotrack,
+                                    color: Color(0xFF1DB954),
+                                  ),
+                                  title: Text(
+                                    item.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  subtitle: Text(
+                                    "${item.segments.length} segments saved",
+                                    style: const TextStyle(color: Colors.grey),
+                                  ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.edit,
+                                          color: Colors.grey,
+                                          size: 20,
+                                        ),
+                                        onPressed: () {
+                                          _editLibraryAudioName(item);
+                                        },
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.delete,
+                                          color: Colors.redAccent,
+                                          size: 20,
+                                        ),
+                                        onPressed: () {
+                                          setState(() {
+                                            _library.remove(item);
+                                            if (_currentEntry == item) {
+                                              _currentEntry = null;
+                                              _player.stop();
+                                            }
+                                          });
+                                          _saveLibrary();
+                                          setModalState(() {});
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                  onTap: () {
+                                    Navigator.pop(context);
+                                    _loadFile(item.path, item.name);
+                                  },
+                                );
+                              },
                             ),
-                          )
-                        : ListView.builder(
-                            itemCount: filteredLibrary.length,
-                            itemBuilder: (context, index) {
-                              final item = filteredLibrary[index];
-                              return ListTile(
-                                leading: const Icon(
-                                  Icons.audiotrack,
-                                  color: Color(0xFF1DB954),
-                                ),
-                                title: Text(
-                                  item.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                subtitle: Text(
-                                  "${item.segments.length} segments saved",
-                                  style: const TextStyle(color: Colors.grey),
-                                ),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.edit,
-                                        color: Colors.grey,
-                                        size: 20,
-                                      ),
-                                      onPressed: () {
-                                        _editLibraryAudioName(item);
-                                      },
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.delete,
-                                        color: Colors.redAccent,
-                                        size: 20,
-                                      ),
-                                      onPressed: () {
-                                        setState(() {
-                                          _library.remove(item);
-                                          if (_currentEntry == item) {
-                                            _currentEntry = null;
-                                            _player.stop();
-                                          }
-                                        });
-                                        _saveLibrary();
-                                        setModalState(() {});
-                                      },
-                                    ),
-                                  ],
-                                ),
-                                onTap: () {
-                                  Navigator.pop(context);
-                                  _loadFile(item.path, item.name);
-                                },
-                              );
-                            },
-                          ),
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
             );
           },
@@ -1657,3 +1657,4 @@ class _SegmentPlayerScreenState extends State<SegmentPlayerScreen> {
     );
   }
 }
+
