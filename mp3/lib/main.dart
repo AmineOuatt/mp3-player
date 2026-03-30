@@ -546,11 +546,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
               heightFactor: 0.72,
               child: Container(
                 decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Color(0xFF202020), Color(0xFF121212)],
-                  ),
+                  color: Color(0xFF121212),
                   borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
                 ),
                 child: Column(
@@ -731,14 +727,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF1D3A2A), Color(0xFF121212)],
-          stops: [0.0, 0.42],
-        ),
-      ),
+      color: const Color(0xFF121212),
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
@@ -1463,17 +1452,7 @@ class _SegmentPlayerScreenState extends State<SegmentPlayerScreen> {
               : currentSegmentPos);
 
     return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFF282828), // Dark grey
-            Color(0xFF121212), // Deep black
-          ],
-          stops: [0.0, 0.4],
-        ),
-      ),
+      color: const Color(0xFF121212),
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
