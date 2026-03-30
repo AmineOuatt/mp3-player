@@ -1,4 +1,5 @@
-﻿import 'dart:convert';
+﻿import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -35,9 +36,13 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
 
   String? _extractRiwaya(dynamic reciter) {
     if (reciter == null) return null;
-    if (reciter['rewaya'] != null) return reciter['rewaya'];
+    if (reciter['rewaya'] != null) return reciter['rewaya'].toString();
     if (reciter['moshaf'] is List && reciter['moshaf'].isNotEmpty) {
-      return reciter['moshaf'][0]['rewaya'];
+      final name = reciter['moshaf'][0]['name']?.toString() ?? '';
+      final parts = name.split(' - ');
+      if (parts.isNotEmpty) {
+        return parts[0].trim();
+      }
     }
     return null;
   }
@@ -338,11 +343,22 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
 
   final AudioPlayer _player = AudioPlayer();
   bool _isPlayingPreview = false;
+  StreamSubscription? _playerStateSubscription;
+  StreamSubscription<List<int>>? _downloadSubscription;
 
   @override
   void initState() {
     super.initState();
     _initDir();
+    _playerStateSubscription = _player.playerStateStream.listen((state) {
+      if (mounted) {
+        setState(() {
+          _isPlayingPreview =
+              state.playing &&
+              state.processingState != ProcessingState.completed;
+        });
+      }
+    });
   }
 
   Future<void> _initDir() async {
@@ -356,18 +372,26 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
 
   @override
   void dispose() {
+    _playerStateSubscription?.cancel();
+    _downloadSubscription?.cancel();
     _player.dispose();
     super.dispose();
   }
 
-  Future<void> _previewAudio(String url) async {
-    if (_isPlayingPreview) {
-      await _player.pause();
+  Future<void> _previewAudio(String pathOrUrl) async {
+    try {
+      if (_player.playing) {
+        await _player.pause();
+      } else {
+        if (pathOrUrl.startsWith('http')) {
+          await _player.setUrl(pathOrUrl);
+        } else {
+          await _player.setFilePath(pathOrUrl);
+        }
+        await _player.play();
+      }
+    } catch (e) {
       if (mounted) setState(() => _isPlayingPreview = false);
-    } else {
-      await _player.setUrl(url);
-      await _player.play();
-      if (mounted) setState(() => _isPlayingPreview = true);
     }
   }
 
@@ -591,7 +615,11 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
                               Row(
                                 children: [
                                   GestureDetector(
-                                    onTap: () => _previewAudio(url),
+                                    onTap: () => _previewAudio(
+                                      fileExists
+                                          ? '$_localDirPath/$filename'
+                                          : url,
+                                    ),
                                     child: Container(
                                       width: 40,
                                       height: 40,
@@ -686,7 +714,11 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
                                             ? '$_localDirPath/$filename'
                                             : url,
                                       ),
-                                      child: const Text("Use Audio"),
+                                      child: Text(
+                                        fileExists
+                                            ? "Use Audio (Offline)"
+                                            : "Use Audio (Stream)",
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(width: 8),
