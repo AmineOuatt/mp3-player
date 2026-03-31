@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'quran_browser.dart';
 
@@ -104,10 +105,133 @@ class AudioGroup {
   );
 }
 
+// --- NOTIFICATION SERVICE ---
+
+class NotificationService {
+  static final NotificationService _instance = NotificationService._internal();
+  static const channelId = 'audio_playback';
+  static const channelName = 'Audio Playback';
+  static const notificationId = 1;
+
+  final FlutterLocalNotificationsPlugin _plugin =
+      FlutterLocalNotificationsPlugin();
+
+  Function(String action)? _actionCallback;
+
+  NotificationService._internal();
+
+  factory NotificationService() {
+    return _instance;
+  }
+
+  Future<void> init() async {
+    const AndroidInitializationSettings android = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
+    const DarwinInitializationSettings ios = DarwinInitializationSettings(
+      requestSoundPermission: false,
+      requestBadgePermission: false,
+      requestAlertPermission: false,
+    );
+    const InitializationSettings settings = InitializationSettings(
+      android: android,
+      iOS: ios,
+    );
+
+    await _plugin.initialize(
+      settings,
+      onDidReceiveNotificationResponse: _onNotificationResponse,
+    );
+
+    // Create notification channel for Android
+    const AndroidNotificationChannel channel = AndroidNotificationChannel(
+      channelId,
+      channelName,
+      importance: Importance.low,
+      enableVibration: false,
+      playSound: false,
+    );
+
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(channel);
+  }
+
+  Future<void> showPlaybackNotification({
+    required String title,
+    required String subtitle,
+    required bool isPlaying,
+    required Function(String action) onAction,
+  }) async {
+    _actionCallback = onAction;
+
+    const AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+          channelId,
+          channelName,
+          importance: Importance.low,
+          priority: Priority.low,
+          showProgress: false,
+          playSound: false,
+          actions: [
+            AndroidNotificationAction(
+              'prev_segment',
+              'Previous',
+              showsUserInterface: false,
+            ),
+            AndroidNotificationAction(
+              'play_pause',
+              isPlaying ? 'Pause' : 'Play',
+              showsUserInterface: false,
+            ),
+            AndroidNotificationAction(
+              'next_segment',
+              'Next',
+              showsUserInterface: false,
+            ),
+            AndroidNotificationAction(
+              'stop',
+              'Stop',
+              showsUserInterface: false,
+            ),
+          ],
+        );
+
+    const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
+      presentAlert: false,
+      presentBadge: false,
+      presentSound: false,
+      subtitle: subtitle,
+    );
+
+    const NotificationDetails details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    await _plugin.show(notificationId, title, subtitle, details);
+  }
+
+  Future<void> cancelNotification() async {
+    await _plugin.cancel(notificationId);
+  }
+
+  void _onNotificationResponse(NotificationResponse response) {
+    final actionId = response.actionId;
+    if (actionId != null && _actionCallback != null) {
+      debugPrint("Notification action triggered: $actionId");
+      _actionCallback!(actionId);
+    }
+  }
+}
+
 // --- MAIN APP ---
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await NotificationService().init();
   runApp(const AudioRepeaterApp());
 }
 
@@ -177,59 +301,126 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
     _prefs = await SharedPreferences.getInstance();
     _loadLibrary();
 
-    _player.positionStream.listen((pos) {
-      if (!mounted) return;
-      setState(() => _position = pos);
+    try {
+      _player.positionStream.listen(
+        (pos) {
+          if (!mounted) return;
+          setState(() => _position = pos);
 
-      // Auto-looping logic
-      if (_isLooping && _loopEnd > Duration.zero && pos >= _loopEnd) {
-        _player.seek(_loopStart);
-      }
-    });
+          // Auto-looping logic
+          if (_isLooping && _loopEnd > Duration.zero && pos >= _loopEnd) {
+            _player.seek(_loopStart);
+          }
 
-    _player.durationStream.listen((dur) {
-      if (!mounted) return;
-      setState(() {
-        _duration = dur ?? Duration.zero;
-        if (_loopEnd == Duration.zero || _loopEnd > _duration) {
-          _loopEnd = _duration;
-        }
-      });
-    });
+          // Update notification with current position
+          if (_isPlaying && _currentEntry != null) {
+            _showPlaybackNotification();
+          }
+        },
+        onError: (error) {
+          debugPrint("Position stream error: $error");
+        },
+      );
 
-    _player.playerStateStream.listen((state) {
-      if (!mounted) return;
-      setState(() {
-        _isPlaying = state.playing;
-      });
-      if (state.processingState == ProcessingState.completed) {
-        if (_isLooping) {
-          _player.seek(_loopStart);
-          _player.play();
-        } else {
-          _player.seek(Duration.zero);
-          _player.pause();
-        }
-      }
-    });
+      _player.durationStream.listen(
+        (dur) {
+          if (!mounted) return;
+          setState(() {
+            _duration = dur ?? Duration.zero;
+            if (_loopEnd == Duration.zero || _loopEnd > _duration) {
+              _loopEnd = _duration;
+            }
+          });
+        },
+        onError: (error) {
+          debugPrint("Duration stream error: $error");
+        },
+      );
+
+      _player.playerStateStream.listen(
+        (state) {
+          if (!mounted) return;
+          setState(() {
+            _isPlaying = state.playing;
+          });
+
+          // Show/update notification when playing
+          if (state.playing && _currentEntry != null) {
+            _showPlaybackNotification();
+          } else if (!state.playing) {
+            // Cancel notification when paused/stopped
+            NotificationService().cancelNotification();
+          }
+
+          if (state.processingState == ProcessingState.completed) {
+            if (_isLooping) {
+              _player.seek(_loopStart);
+              _player.play();
+            } else {
+              _player.seek(Duration.zero);
+              _player.pause();
+            }
+          }
+        },
+        onError: (error) {
+          debugPrint("Player state stream error: $error");
+        },
+      );
+    } catch (e) {
+      debugPrint("Error initializing audio player: $e");
+    }
   }
 
   void _loadLibrary() {
-    final libraryJson = _prefs?.getString('library');
-    final groupsJson = _prefs?.getString('audioGroups');
+    try {
+      final libraryJson = _prefs?.getString('library');
+      final groupsJson = _prefs?.getString('audioGroups');
 
-    if (libraryJson != null) {
-      final List decoded = jsonDecode(libraryJson);
-      setState(() {
-        _library = decoded.map((e) => SavedAudioEntry.fromJson(e)).toList();
-      });
-    }
+      if (libraryJson != null && libraryJson.isNotEmpty) {
+        try {
+          final List decoded = jsonDecode(libraryJson);
+          setState(() {
+            _library = decoded
+                .map((e) {
+                  try {
+                    return SavedAudioEntry.fromJson(e as Map<String, dynamic>);
+                  } catch (e) {
+                    debugPrint("Error parsing library entry: $e");
+                    return null;
+                  }
+                  ;
+                })
+                .whereType<SavedAudioEntry>()
+                .toList();
+          });
+        } catch (e) {
+          debugPrint("Error decoding library JSON: $e");
+        }
+      }
 
-    if (groupsJson != null) {
-      final List decoded = jsonDecode(groupsJson);
-      setState(() {
-        _audioGroups = decoded.map((e) => AudioGroup.fromJson(e)).toList();
-      });
+      if (groupsJson != null && groupsJson.isNotEmpty) {
+        try {
+          final List decoded = jsonDecode(groupsJson);
+          setState(() {
+            _audioGroups = decoded
+                .map((e) {
+                  try {
+                    return AudioGroup.fromJson(e as Map<String, dynamic>);
+                  } catch (e) {
+                    debugPrint("Error parsing group entry: $e");
+                    return null;
+                  }
+                  ;
+                })
+                .whereType<AudioGroup>()
+                .toList();
+          });
+        } catch (e) {
+          debugPrint("Error decoding groups JSON: $e");
+        }
+      }
+    } catch (e) {
+      debugPrint("Error loading library: $e");
     }
   }
 
@@ -265,23 +456,55 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
         );
       });
       _saveLibrary();
+      _loadFile(path, filename);
     } else {
-      setState(() {
-        final existing = _library[index];
-        if (sourceReciterName != null && sourceReciterName.isNotEmpty) {
-          existing.sourceReciterName = sourceReciterName;
-        }
-        if (sourceSurahName != null && sourceSurahName.isNotEmpty) {
-          existing.sourceSurahName = sourceSurahName;
-        }
-        if (sourceSurahId != null && sourceSurahId.isNotEmpty) {
-          existing.sourceSurahId = sourceSurahId;
-        }
-      });
-      _saveLibrary();
+      // Audio already exists - show confirmation dialog
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: const Color(0xFF181818),
+          title: const Text(
+            'Audio Already in Library',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: Text(
+            'This voice is already in your library:\n\n"${_library[index].name}"\n\nDo you want to use it again?',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              child: const Text('CANCEL', style: TextStyle(color: Colors.grey)),
+              onPressed: () => Navigator.pop(context),
+            ),
+            TextButton(
+              child: const Text(
+                'USE ANYWAY',
+                style: TextStyle(color: Color(0xFF1DB954)),
+              ),
+              onPressed: () {
+                Navigator.pop(context);
+                setState(() {
+                  final existing = _library[index];
+                  if (sourceReciterName != null &&
+                      sourceReciterName.isNotEmpty) {
+                    existing.sourceReciterName = sourceReciterName;
+                  }
+                  if (sourceSurahName != null && sourceSurahName.isNotEmpty) {
+                    existing.sourceSurahName = sourceSurahName;
+                  }
+                  if (sourceSurahId != null && sourceSurahId.isNotEmpty) {
+                    existing.sourceSurahId = sourceSurahId;
+                  }
+                });
+                _saveLibrary();
+                _loadFile(path, filename);
+              },
+            ),
+          ],
+        ),
+      );
     }
-
-    _loadFile(path, filename);
   }
 
   void _openOnlineQuranBrowser() async {
@@ -312,29 +535,43 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
   }
 
   IconData _getAudioStatusIcon(SavedAudioEntry entry) {
+    // Streaming from network
     if (entry.path.startsWith('http://') || entry.path.startsWith('https://')) {
       return Icons.cloud_upload;
-    } else {
+    }
+
+    // Check if local file exists (downloaded)
+    try {
       final file = File(entry.path);
       if (file.existsSync()) {
-        return Icons.check_circle;
-      } else {
-        return Icons.album;
+        return Icons.download_done; // Downloaded icon
       }
+    } catch (e) {
+      debugPrint("Error checking file: $e");
     }
+
+    // File not found or error
+    return Icons.album;
   }
 
   Color _getAudioStatusIconColor(SavedAudioEntry entry) {
+    // Streaming from network
     if (entry.path.startsWith('http://') || entry.path.startsWith('https://')) {
-      return const Color(0xFF1DB954);
-    } else {
+      return const Color(0xFF1DB954); // Green for streaming
+    }
+
+    // Check if local file exists (downloaded)
+    try {
       final file = File(entry.path);
       if (file.existsSync()) {
-        return const Color(0xFF1DB954);
-      } else {
-        return Colors.grey;
+        return const Color(0xFF1DB954); // Green for downloaded
       }
+    } catch (e) {
+      debugPrint("Error checking file color: $e");
     }
+
+    // File not found
+    return Colors.grey;
   }
 
   void _showAudioSize(SavedAudioEntry entry) async {
@@ -429,6 +666,15 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
 
   Future<void> _loadFile(String path, String name) async {
     try {
+      // Validate path
+      if (path.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Invalid audio path')));
+        return;
+      }
+
       final sourceUri =
           path.startsWith('http://') || path.startsWith('https://')
           ? Uri.parse(path)
@@ -455,7 +701,13 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
 
       _saveLibrary();
       _generateWaveform(path);
-      _player.play();
+
+      // Delay play to ensure audio is ready
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (mounted) {
+          _player.play();
+        }
+      });
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -1419,9 +1671,43 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}.$ms';
   }
 
+  void _showPlaybackNotification() {
+    if (_currentEntry == null) return;
+
+    final currentTime = _formatDuration(_position);
+    final totalTime = _formatDuration(_duration);
+    final subtitle =
+        '${_isPlaying ? "Playing" : "Paused"} • $currentTime / $totalTime';
+
+    NotificationService().showPlaybackNotification(
+      title: _currentEntry!.name,
+      subtitle: subtitle,
+      isPlaying: _isPlaying,
+      onAction: (action) {
+        // Handle notification actions
+        switch (action) {
+          case 'play_pause':
+            _isPlaying ? _player.pause() : _player.play();
+            break;
+          case 'prev_segment':
+            _seekBy(const Duration(seconds: -5));
+            break;
+          case 'next_segment':
+            _seekBy(const Duration(seconds: 5));
+            break;
+          case 'stop':
+            _player.stop();
+            NotificationService().cancelNotification();
+            break;
+        }
+      },
+    );
+  }
+
   @override
   void dispose() {
     _player.dispose();
+    NotificationService().cancelNotification();
     super.dispose();
   }
 
@@ -1716,11 +2002,25 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                   _duration.inMilliseconds
                             : 0.0,
                         onChanged: (value) {
+                          // Prevent bypassing loop boundaries when in loop mode
                           final newPos = Duration(
                             milliseconds: (_duration.inMilliseconds * value)
                                 .toInt(),
                           );
-                          _player.seek(newPos);
+
+                          // If looping the full audio (not a segment), constrain slider
+                          if (_isLooping && _selectedSegmentId == null) {
+                            if (newPos < _loopStart) {
+                              _player.seek(_loopStart);
+                            } else if (newPos > _loopEnd) {
+                              _player.seek(_loopEnd);
+                            } else {
+                              _player.seek(newPos);
+                            }
+                          } else {
+                            // No constraints when not looping
+                            _player.seek(newPos);
+                          }
                         },
                       ),
                     ),
