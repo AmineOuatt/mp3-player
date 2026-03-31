@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 
 import 'quran_browser.dart';
 
@@ -310,10 +311,49 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
     return '${size.toStringAsFixed(size < 10 && unit > 0 ? 1 : 0)} ${units[unit]}';
   }
 
-  void _showAudioSize(SavedAudioEntry entry) {
+  IconData _getAudioStatusIcon(SavedAudioEntry entry) {
+    if (entry.path.startsWith('http://') || entry.path.startsWith('https://')) {
+      return Icons.cloud_upload;
+    } else {
+      final file = File(entry.path);
+      if (file.existsSync()) {
+        return Icons.check_circle;
+      } else {
+        return Icons.album;
+      }
+    }
+  }
+
+  Color _getAudioStatusIconColor(SavedAudioEntry entry) {
+    if (entry.path.startsWith('http://') || entry.path.startsWith('https://')) {
+      return const Color(0xFF1DB954);
+    } else {
+      final file = File(entry.path);
+      if (file.existsSync()) {
+        return const Color(0xFF1DB954);
+      } else {
+        return Colors.grey;
+      }
+    }
+  }
+
+  void _showAudioSize(SavedAudioEntry entry) async {
     String message;
     if (entry.path.startsWith('http://') || entry.path.startsWith('https://')) {
-      message = 'Size unavailable for streaming source.';
+      // Try to fetch size from server headers
+      try {
+        final response = await http
+            .head(Uri.parse(entry.path))
+            .timeout(const Duration(seconds: 5));
+        final contentLength = response.contentLength;
+        if (contentLength != null && contentLength > 0) {
+          message = 'Size: ${_formatFileSize(contentLength)}';
+        } else {
+          message = 'Size unavailable for streaming source.';
+        }
+      } catch (e) {
+        message = 'Size unavailable for streaming source.';
+      }
     } else {
       final file = File(entry.path);
       if (!file.existsSync()) {
@@ -331,7 +371,21 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
   }
 
   void _openAudioSource(SavedAudioEntry entry) async {
-    final reciter = entry.sourceReciterName;
+    String? reciter = entry.sourceReciterName;
+    String? surah = entry.sourceSurahName;
+
+    // Fallback for older library items: try parsing "Reciter - Surah".
+    if ((reciter == null || reciter.trim().isEmpty) &&
+        entry.name.contains(' - ')) {
+      final parts = entry.name.split(' - ');
+      if (parts.isNotEmpty) {
+        reciter = parts.first.trim();
+      }
+      if ((surah == null || surah.trim().isEmpty) && parts.length > 1) {
+        surah = parts.sublist(1).join(' - ').trim();
+      }
+    }
+
     if (reciter == null || reciter.trim().isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -347,7 +401,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
       MaterialPageRoute(
         builder: (context) => QuranBrowserMode(
           initialReciterName: reciter,
-          initialSurahName: entry.sourceSurahName,
+          initialSurahName: surah,
           initialSurahId: entry.sourceSurahId,
         ),
         fullscreenDialog: true,
@@ -1097,74 +1151,58 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                         color: Colors.grey,
                                       ),
                                     ),
-                                    trailing: SizedBox(
-                                      width: 128,
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.priority_high,
-                                              color: Colors.white70,
-                                              size: 18,
-                                            ),
-                                            tooltip: 'Show size',
-                                            onPressed: () {
-                                              _showAudioSize(item);
-                                            },
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.travel_explore,
-                                              color: Colors.white70,
-                                              size: 18,
-                                            ),
-                                            tooltip: 'Open source (Imam/Surah)',
-                                            onPressed: () {
-                                              _openAudioSource(item);
-                                            },
-                                          ),
-                                          PopupMenuButton<String>(
-                                            icon: const Icon(
-                                              Icons.more_vert,
-                                              color: Colors.grey,
-                                              size: 18,
-                                            ),
-                                            color: const Color(0xFF222222),
-                                            onSelected: (value) {
-                                              if (value == 'move') {
-                                                _moveAudioToGroup(item);
-                                              } else if (value == 'edit') {
-                                                _editLibraryAudioName(item);
-                                              } else if (value == 'delete') {
-                                                setState(() {
-                                                  _library.remove(item);
-                                                  if (_currentEntry == item) {
-                                                    _currentEntry = null;
-                                                    _player.stop();
-                                                  }
-                                                });
-                                                _saveLibrary();
-                                                setModalState(() {});
-                                              }
-                                            },
-                                            itemBuilder: (context) => const [
-                                              PopupMenuItem(
-                                                value: 'move',
-                                                child: Text('Move to group'),
-                                              ),
-                                              PopupMenuItem(
-                                                value: 'edit',
-                                                child: Text('Rename'),
-                                              ),
-                                              PopupMenuItem(
-                                                value: 'delete',
-                                                child: Text('Delete'),
-                                              ),
-                                            ],
-                                          ),
-                                        ],
+                                    trailing: PopupMenuButton<String>(
+                                      icon: const Icon(
+                                        Icons.more_vert,
+                                        color: Colors.grey,
+                                        size: 18,
                                       ),
+                                      color: const Color(0xFF222222),
+                                      onSelected: (value) {
+                                        if (value == 'size') {
+                                          _showAudioSize(item);
+                                        } else if (value == 'source') {
+                                          _openAudioSource(item);
+                                        } else if (value == 'move') {
+                                          _moveAudioToGroup(item);
+                                        } else if (value == 'edit') {
+                                          _editLibraryAudioName(item);
+                                        } else if (value == 'delete') {
+                                          setState(() {
+                                            _library.remove(item);
+                                            if (_currentEntry == item) {
+                                              _currentEntry = null;
+                                              _player.stop();
+                                            }
+                                          });
+                                          _saveLibrary();
+                                          setModalState(() {});
+                                        }
+                                      },
+                                      itemBuilder: (context) => const [
+                                        PopupMenuItem(
+                                          value: 'size',
+                                          child: Text('! Show size'),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'source',
+                                          child: Text(
+                                            'Open source (Imam/Surah)',
+                                          ),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'move',
+                                          child: Text('Move to group'),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'edit',
+                                          child: Text('Rename'),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'delete',
+                                          child: Text('Delete'),
+                                        ),
+                                      ],
                                     ),
                                     onTap: () {
                                       Navigator.pop(context);
@@ -1283,8 +1321,8 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                           left: 12.0,
                                         ),
                                         child: Icon(
-                                          Icons.music_note,
-                                          color: Colors.grey[600],
+                                          _getAudioStatusIcon(item),
+                                          color: _getAudioStatusIconColor(item),
                                           size: 18,
                                         ),
                                       ),
@@ -1295,75 +1333,58 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                           color: Colors.grey,
                                         ),
                                       ),
-                                      trailing: SizedBox(
-                                        width: 128,
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            IconButton(
-                                              icon: const Icon(
-                                                Icons.priority_high,
-                                                color: Colors.white70,
-                                                size: 18,
-                                              ),
-                                              tooltip: 'Show size',
-                                              onPressed: () {
-                                                _showAudioSize(item);
-                                              },
-                                            ),
-                                            IconButton(
-                                              icon: const Icon(
-                                                Icons.travel_explore,
-                                                color: Colors.white70,
-                                                size: 18,
-                                              ),
-                                              tooltip:
-                                                  'Open source (Imam/Surah)',
-                                              onPressed: () {
-                                                _openAudioSource(item);
-                                              },
-                                            ),
-                                            PopupMenuButton<String>(
-                                              icon: const Icon(
-                                                Icons.more_vert,
-                                                color: Colors.grey,
-                                                size: 18,
-                                              ),
-                                              color: const Color(0xFF222222),
-                                              onSelected: (value) {
-                                                if (value == 'move') {
-                                                  _moveAudioToGroup(item);
-                                                } else if (value == 'edit') {
-                                                  _editLibraryAudioName(item);
-                                                } else if (value == 'delete') {
-                                                  setState(() {
-                                                    _library.remove(item);
-                                                    if (_currentEntry == item) {
-                                                      _currentEntry = null;
-                                                      _player.stop();
-                                                    }
-                                                  });
-                                                  _saveLibrary();
-                                                  setModalState(() {});
-                                                }
-                                              },
-                                              itemBuilder: (context) => const [
-                                                PopupMenuItem(
-                                                  value: 'move',
-                                                  child: Text('Move to group'),
-                                                ),
-                                                PopupMenuItem(
-                                                  value: 'edit',
-                                                  child: Text('Rename'),
-                                                ),
-                                                PopupMenuItem(
-                                                  value: 'delete',
-                                                  child: Text('Delete'),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
+                                      trailing: PopupMenuButton<String>(
+                                        icon: const Icon(
+                                          Icons.more_vert,
+                                          color: Colors.grey,
+                                          size: 18,
                                         ),
+                                        color: const Color(0xFF222222),
+                                        onSelected: (value) {
+                                          if (value == 'size') {
+                                            _showAudioSize(item);
+                                          } else if (value == 'source') {
+                                            _openAudioSource(item);
+                                          } else if (value == 'move') {
+                                            _moveAudioToGroup(item);
+                                          } else if (value == 'edit') {
+                                            _editLibraryAudioName(item);
+                                          } else if (value == 'delete') {
+                                            setState(() {
+                                              _library.remove(item);
+                                              if (_currentEntry == item) {
+                                                _currentEntry = null;
+                                                _player.stop();
+                                              }
+                                            });
+                                            _saveLibrary();
+                                            setModalState(() {});
+                                          }
+                                        },
+                                        itemBuilder: (context) => const [
+                                          PopupMenuItem(
+                                            value: 'size',
+                                            child: Text('! Show size'),
+                                          ),
+                                          PopupMenuItem(
+                                            value: 'source',
+                                            child: Text(
+                                              'Open source (Imam/Surah)',
+                                            ),
+                                          ),
+                                          PopupMenuItem(
+                                            value: 'move',
+                                            child: Text('Move to group'),
+                                          ),
+                                          PopupMenuItem(
+                                            value: 'edit',
+                                            child: Text('Rename'),
+                                          ),
+                                          PopupMenuItem(
+                                            value: 'delete',
+                                            child: Text('Delete'),
+                                          ),
+                                        ],
                                       ),
                                       onTap: () {
                                         Navigator.pop(context);
