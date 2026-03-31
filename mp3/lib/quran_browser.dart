@@ -8,7 +8,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:just_audio/just_audio.dart';
 
 class QuranBrowserMode extends StatefulWidget {
-  const QuranBrowserMode({super.key});
+  final String? initialReciterName;
+  final String? initialSurahName;
+  final String? initialSurahId;
+
+  const QuranBrowserMode({
+    super.key,
+    this.initialReciterName,
+    this.initialSurahName,
+    this.initialSurahId,
+  });
 
   @override
   State<QuranBrowserMode> createState() => _QuranBrowserModeState();
@@ -27,6 +36,7 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
   String _searchQuery = "";
   List<String> _favoriteReciterIds = [];
   bool _showFavoritesOnly = false;
+  bool _handledInitialJump = false;
 
   @override
   void initState() {
@@ -78,10 +88,49 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
           _riwayat = ['All', ...riwayaSet.toList()..sort()];
           _isLoading = false;
         });
+
+        _openInitialSourceIfNeeded();
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _openInitialSourceIfNeeded() {
+    if (_handledInitialJump) return;
+    _handledInitialJump = true;
+
+    final initialReciter = widget.initialReciterName;
+    if (initialReciter == null || initialReciter.trim().isEmpty) return;
+
+    final normalizedNeedle = initialReciter.toLowerCase().trim();
+    dynamic matched;
+
+    for (final reciter in _reciters) {
+      final name = (reciter['name'] ?? '').toString().toLowerCase().trim();
+      if (name == normalizedNeedle) {
+        matched = reciter;
+        break;
+      }
+    }
+
+    matched ??= _reciters.cast<dynamic?>().firstWhere(
+      (reciter) => (reciter?['name'] ?? '').toString().toLowerCase().contains(
+        normalizedNeedle,
+      ),
+      orElse: () => null,
+    );
+
+    if (matched == null || !mounted) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _openReciter(
+        matched,
+        initialSurahName: widget.initialSurahName,
+        initialSurahId: widget.initialSurahId,
+      );
+    });
   }
 
   Future<void> _toggleFavorite(String id) async {
@@ -96,7 +145,11 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
     await prefs.setStringList('favorite_reciters', _favoriteReciterIds);
   }
 
-  void _openReciter(dynamic reciter) async {
+  void _openReciter(
+    dynamic reciter, {
+    String? initialSurahName,
+    String? initialSurahId,
+  }) async {
     if (reciter['moshaf'] == null || (reciter['moshaf'] as List).isEmpty)
       return;
 
@@ -110,6 +163,8 @@ class _QuranBrowserModeState extends State<QuranBrowserMode> {
           reciterName: reciter['name'],
           moshaf: moshaf,
           suwarList: _suwar,
+          initialSurahName: initialSurahName,
+          initialSurahId: initialSurahId,
         ),
       ),
     );
@@ -321,12 +376,16 @@ class SurahSelectionScreen extends StatefulWidget {
   final String reciterName;
   final dynamic moshaf;
   final List<dynamic> suwarList;
+  final String? initialSurahName;
+  final String? initialSurahId;
 
   const SurahSelectionScreen({
     super.key,
     required this.reciterName,
     required this.moshaf,
     required this.suwarList,
+    this.initialSurahName,
+    this.initialSurahId,
   });
 
   @override
@@ -350,6 +409,14 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
   void initState() {
     super.initState();
     _initDir();
+    final initialName = widget.initialSurahName;
+    if (initialName != null && initialName.trim().isNotEmpty) {
+      _searchQuery = initialName.trim();
+    }
+    final initialId = widget.initialSurahId;
+    if (initialId != null && initialId.trim().isNotEmpty) {
+      _expandedSurahId = initialId.trim();
+    }
     _playerStateSubscription = _player.playerStateStream.listen((state) {
       if (mounted) {
         setState(() {
@@ -397,7 +464,13 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
 
   void _useAudioDirectly(dynamic surah, String audioPath) {
     String name = "${widget.reciterName} - ${surah['name']}";
-    Navigator.pop(context, {'path': audioPath, 'name': name});
+    Navigator.pop(context, {
+      'path': audioPath,
+      'name': name,
+      'sourceReciterName': widget.reciterName,
+      'sourceSurahName': surah['name']?.toString(),
+      'sourceSurahId': surah['id']?.toString(),
+    });
   }
 
   Future<void> _deleteSurah(dynamic surah) async {
