@@ -198,10 +198,20 @@ class NotificationService {
     final androidDetails = AndroidNotificationDetails(
       channelId,
       channelName,
+      channelDescription: 'Now playing controls',
       importance: Importance.low,
       priority: Priority.low,
+      category: AndroidNotificationCategory.transport,
+      visibility: NotificationVisibility.public,
+      ongoing: isPlaying,
+      autoCancel: false,
+      onlyAlertOnce: true,
+      showWhen: false,
+      colorized: true,
+      color: const Color(0xFF1DB954),
       showProgress: false,
       playSound: false,
+      styleInformation: const MediaStyleInformation(),
       actions: actions,
     );
 
