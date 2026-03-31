@@ -148,6 +148,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
 
   Duration _loopStart = Duration.zero;
   Duration _loopEnd = Duration.zero;
+  String? _selectedSegmentId;
 
   List<double> _waveformSamples = [];
   String _segmentSearchQuery = "";
@@ -291,6 +292,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
         _currentEntry = entry;
         _loopStart = Duration.zero;
         _loopEnd = _player.duration ?? _duration;
+        _selectedSegmentId = null;
       });
 
       _saveLibrary();
@@ -1425,7 +1427,17 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                         setState(() {
                           _loopStart = _position;
                           if (_loopStart > _loopEnd) _loopEnd = _duration;
+                          _selectedSegmentId = null;
                         });
+                      }),
+                      _buildControlBtn("Reset", () {
+                        HapticFeedback.mediumImpact();
+                        setState(() {
+                          _loopStart = Duration.zero;
+                          _loopEnd = _duration;
+                          _selectedSegmentId = null;
+                        });
+                        _player.seek(Duration.zero);
                       }),
                       _buildControlBtn("Set End", () {
                         HapticFeedback.mediumImpact();
@@ -1434,6 +1446,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                           if (_loopEnd < _loopStart) {
                             _loopStart = Duration.zero;
                           }
+                          _selectedSegmentId = null;
                         });
                       }),
                     ],
@@ -1687,8 +1700,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                   itemBuilder: (context, index) {
                                     final segment = filteredSegments[index];
                                     final isSelected =
-                                        _loopStart == segment.start &&
-                                        _loopEnd == segment.end;
+                                        _selectedSegmentId == segment.id;
 
                                     return Container(
                                       key: ValueKey(segment.id),
@@ -1727,6 +1739,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                           setState(() {
                                             _loopStart = segment.start;
                                             _loopEnd = segment.end;
+                                            _selectedSegmentId = segment.id;
                                           });
                                           int originalIndex = _currentEntry!
                                               .segments
