@@ -1712,14 +1712,14 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                         minVerticalPadding: 4,
                                         contentPadding: const EdgeInsets.only(
                                           left: 12,
-                                          right: 6,
+                                          right: 2,
                                         ),
                                         leading: Icon(
                                           Icons.bookmark,
                                           size: 18,
                                           color: isSelected
                                               ? const Color(0xFF45D47F)
-                                              : const Color(0xFF1DB954),
+                                              : Colors.grey,
                                         ),
                                         onTap: () {
                                           _player.seek(segment.start);
@@ -1754,51 +1754,54 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                             fontSize: 12,
                                           ),
                                         ),
-                                        trailing: SizedBox(
-                                          width: 102,
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              ReorderableDragStartListener(
-                                                index: index,
-                                                child: const Icon(
-                                                  Icons.drag_indicator,
-                                                  color: Colors.grey,
-                                                  size: 18,
-                                                ),
+                                        trailing: Wrap(
+                                          spacing: 2,
+                                          crossAxisAlignment:
+                                              WrapCrossAlignment.center,
+                                          children: [
+                                            ReorderableDragStartListener(
+                                              index: index,
+                                              child: const Icon(
+                                                Icons.drag_indicator,
+                                                color: Colors.grey,
+                                                size: 18,
                                               ),
-                                              IconButton(
-                                                constraints:
-                                                    const BoxConstraints(),
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 6,
-                                                    ),
-                                                icon: const Icon(
-                                                  Icons.edit,
-                                                  color: Colors.grey,
-                                                  size: 17,
-                                                ),
-                                                onPressed: () =>
-                                                    _editSegmentName(segment),
+                                            ),
+                                            IconButton(
+                                              visualDensity:
+                                                  VisualDensity.compact,
+                                              constraints:
+                                                  const BoxConstraints.tightFor(
+                                                    width: 28,
+                                                    height: 28,
+                                                  ),
+                                              padding: EdgeInsets.zero,
+                                              icon: const Icon(
+                                                Icons.edit,
+                                                color: Colors.grey,
+                                                size: 17,
                                               ),
-                                              IconButton(
-                                                constraints:
-                                                    const BoxConstraints(),
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 6,
-                                                    ),
-                                                icon: const Icon(
-                                                  Icons.delete_outline,
-                                                  color: Colors.redAccent,
-                                                  size: 18,
-                                                ),
-                                                onPressed: () =>
-                                                    _deleteSegment(segment),
+                                              onPressed: () =>
+                                                  _editSegmentName(segment),
+                                            ),
+                                            IconButton(
+                                              visualDensity:
+                                                  VisualDensity.compact,
+                                              constraints:
+                                                  const BoxConstraints.tightFor(
+                                                    width: 28,
+                                                    height: 28,
+                                                  ),
+                                              padding: EdgeInsets.zero,
+                                              icon: const Icon(
+                                                Icons.delete_outline,
+                                                color: Colors.redAccent,
+                                                size: 18,
                                               ),
-                                            ],
-                                          ),
+                                              onPressed: () =>
+                                                  _deleteSegment(segment),
+                                            ),
+                                          ],
                                         ),
                                       ),
                                     );
