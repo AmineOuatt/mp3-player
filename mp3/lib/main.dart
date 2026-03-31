@@ -124,6 +124,10 @@ class NotificationService {
     return _instance;
   }
 
+  void setActionCallback(Function(String action) callback) {
+    _actionCallback = callback;
+  }
+
   Future<void> init() async {
     const AndroidInitializationSettings android = AndroidInitializationSettings(
       '@mipmap/ic_launcher',
@@ -163,30 +167,31 @@ class NotificationService {
     required String title,
     required String subtitle,
     required bool isPlaying,
-    required Function(String action) onAction,
   }) async {
-    _actionCallback = onAction;
-
     final List<AndroidNotificationAction> actions = [
       const AndroidNotificationAction(
         'prev_segment',
         'Previous',
-        showsUserInterface: false,
+        showsUserInterface: true,
+        cancelNotification: false,
       ),
       AndroidNotificationAction(
         'play_pause',
         isPlaying ? 'Pause' : 'Play',
-        showsUserInterface: false,
+        showsUserInterface: true,
+        cancelNotification: false,
       ),
       const AndroidNotificationAction(
         'next_segment',
         'Next',
-        showsUserInterface: false,
+        showsUserInterface: true,
+        cancelNotification: false,
       ),
       const AndroidNotificationAction(
         'stop',
         'Stop',
-        showsUserInterface: false,
+        showsUserInterface: true,
+        cancelNotification: true,
       ),
     ];
 
@@ -221,7 +226,7 @@ class NotificationService {
 
   void _onNotificationResponse(NotificationResponse response) {
     final actionId = response.actionId;
-    if (actionId != null && _actionCallback != null) {
+    if (actionId != null && actionId.isNotEmpty && _actionCallback != null) {
       debugPrint("Notification action triggered: $actionId");
       _actionCallback!(actionId);
     }
@@ -301,6 +306,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
   Future<void> _initApp() async {
     _prefs = await SharedPreferences.getInstance();
     _loadLibrary();
+    NotificationService().setActionCallback(_handleNotificationAction);
 
     try {
       _player.positionStream.listen(
@@ -372,6 +378,64 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
     }
   }
 
+  bool _replaceStreamEntryWithOffline({
+    required String offlinePath,
+    required String offlineName,
+    String? replaceStreamPath,
+    String? sourceReciterName,
+    String? sourceSurahId,
+    String? sourceSurahName,
+  }) {
+    int index = -1;
+
+    if (replaceStreamPath != null && replaceStreamPath.isNotEmpty) {
+      index = _library.indexWhere((entry) => entry.path == replaceStreamPath);
+    }
+
+    if (index == -1 &&
+        sourceReciterName != null &&
+        sourceReciterName.isNotEmpty &&
+        sourceSurahId != null &&
+        sourceSurahId.isNotEmpty) {
+      index = _library.indexWhere(
+        (entry) =>
+            (entry.path.startsWith('http://') ||
+                entry.path.startsWith('https://')) &&
+            (entry.sourceReciterName ?? '').trim() ==
+                sourceReciterName.trim() &&
+            (entry.sourceSurahId ?? '').trim() == sourceSurahId.trim(),
+      );
+    }
+
+    if (index == -1) return false;
+
+    final existing = _library[index];
+    final updated = SavedAudioEntry(
+      path: offlinePath,
+      name: offlineName,
+      segments: existing.segments,
+      groupId: existing.groupId,
+      sourceReciterName: sourceReciterName?.isNotEmpty == true
+          ? sourceReciterName
+          : existing.sourceReciterName,
+      sourceSurahName: sourceSurahName?.isNotEmpty == true
+          ? sourceSurahName
+          : existing.sourceSurahName,
+      sourceSurahId: sourceSurahId?.isNotEmpty == true
+          ? sourceSurahId
+          : existing.sourceSurahId,
+    );
+
+    setState(() {
+      _library[index] = updated;
+      if (_currentEntry?.path == existing.path) {
+        _currentEntry = updated;
+      }
+    });
+
+    return true;
+  }
+
   void _loadLibrary() {
     try {
       final libraryJson = _prefs?.getString('library');
@@ -439,8 +503,24 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
     final sourceReciterName = result['sourceReciterName']?.toString();
     final sourceSurahName = result['sourceSurahName']?.toString();
     final sourceSurahId = result['sourceSurahId']?.toString();
+    final replaceStreamPath = result['replaceStreamPath']?.toString();
 
     if (path.isEmpty || filename.isEmpty) return;
+
+    final didReplaceStreamEntry = _replaceStreamEntryWithOffline(
+      offlinePath: path,
+      offlineName: filename,
+      replaceStreamPath: replaceStreamPath,
+      sourceReciterName: sourceReciterName,
+      sourceSurahName: sourceSurahName,
+      sourceSurahId: sourceSurahId,
+    );
+
+    if (didReplaceStreamEntry) {
+      _saveLibrary();
+      _loadFile(path, filename);
+      return;
+    }
 
     final index = _library.indexWhere((entry) => entry.path == path);
     if (index == -1) {
@@ -1684,25 +1764,27 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
       title: _currentEntry!.name,
       subtitle: subtitle,
       isPlaying: _isPlaying,
-      onAction: (action) {
-        // Handle notification actions
-        switch (action) {
-          case 'play_pause':
-            _isPlaying ? _player.pause() : _player.play();
-            break;
-          case 'prev_segment':
-            _seekBy(const Duration(seconds: -5));
-            break;
-          case 'next_segment':
-            _seekBy(const Duration(seconds: 5));
-            break;
-          case 'stop':
-            _player.stop();
-            NotificationService().cancelNotification();
-            break;
-        }
-      },
     );
+  }
+
+  void _handleNotificationAction(String action) {
+    if (!mounted) return;
+
+    switch (action) {
+      case 'play_pause':
+        _isPlaying ? _player.pause() : _player.play();
+        break;
+      case 'prev_segment':
+        _seekBy(const Duration(seconds: -5));
+        break;
+      case 'next_segment':
+        _seekBy(const Duration(seconds: 5));
+        break;
+      case 'stop':
+        _player.stop();
+        NotificationService().cancelNotification();
+        break;
+    }
   }
 
   @override

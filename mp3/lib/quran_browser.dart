@@ -525,6 +525,8 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
           final file = File('${dir.path}/$filename');
           await file.writeAsBytes(bytes);
 
+          final displayName = "${widget.reciterName} - ${surah['name']}";
+
           if (mounted) {
             setState(() {
               _isDownloading = false;
@@ -536,6 +538,16 @@ class _SurahSelectionScreenState extends State<SurahSelectionScreen> {
                 backgroundColor: Color(0xFF1DB954),
               ),
             );
+
+            // Auto-switch main window/library entry from stream to offline file.
+            Navigator.pop(context, {
+              'path': file.path,
+              'name': displayName,
+              'sourceReciterName': widget.reciterName,
+              'sourceSurahName': surah['name']?.toString(),
+              'sourceSurahId': surah['id']?.toString(),
+              'replaceStreamPath': finalUrl,
+            });
           }
         },
         onError: (e) {
