@@ -1140,9 +1140,9 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: ListTile(
-                                    leading: const Icon(
-                                      Icons.album,
-                                      color: Color(0xFF1DB954),
+                                    leading: Icon(
+                                      _getAudioStatusIcon(item),
+                                      color: _getAudioStatusIconColor(item),
                                     ),
                                     title: Text(item.name),
                                     subtitle: Text(
@@ -1159,9 +1159,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                       ),
                                       color: const Color(0xFF222222),
                                       onSelected: (value) {
-                                        if (value == 'size') {
-                                          _showAudioSize(item);
-                                        } else if (value == 'source') {
+                                        if (value == 'source') {
                                           _openAudioSource(item);
                                         } else if (value == 'move') {
                                           _moveAudioToGroup(item);
@@ -1180,10 +1178,6 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                         }
                                       },
                                       itemBuilder: (context) => const [
-                                        PopupMenuItem(
-                                          value: 'size',
-                                          child: Text('! Show size'),
-                                        ),
                                         PopupMenuItem(
                                           value: 'source',
                                           child: Text(
@@ -1341,9 +1335,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                         ),
                                         color: const Color(0xFF222222),
                                         onSelected: (value) {
-                                          if (value == 'size') {
-                                            _showAudioSize(item);
-                                          } else if (value == 'source') {
+                                          if (value == 'source') {
                                             _openAudioSource(item);
                                           } else if (value == 'move') {
                                             _moveAudioToGroup(item);
@@ -1362,10 +1354,6 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                           }
                                         },
                                         itemBuilder: (context) => const [
-                                          PopupMenuItem(
-                                            value: 'size',
-                                            child: Text('! Show size'),
-                                          ),
                                           PopupMenuItem(
                                             value: 'source',
                                             child: Text(
