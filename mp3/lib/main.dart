@@ -151,7 +151,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
 
   List<double> _waveformSamples = [];
   String _segmentSearchQuery = "";
-  int _segmentListFlex = 5;
+  int _segmentListFlex = 4;
 
   @override
   void initState() {
@@ -1593,7 +1593,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                 setState(() {
                   final updated = (_segmentListFlex - (details.delta.dy / 18))
                       .round();
-                  _segmentListFlex = updated.clamp(3, 8);
+                  _segmentListFlex = updated.clamp(2, 7);
                 });
               },
               child: Padding(
@@ -2318,6 +2318,12 @@ class _SegmentPlayerScreenState extends State<SegmentPlayerScreen> {
   void _showEditSegmentSheet() {
     Duration tempStart = currentSegment.start;
     Duration tempEnd = currentSegment.end;
+    final Duration totalDuration =
+        widget.player.duration ??
+        (currentSegment.end > Duration.zero
+            ? currentSegment.end
+            : const Duration(seconds: 1));
+    final int minGapMs = 500;
 
     showModalBottomSheet(
       context: context,
@@ -2352,6 +2358,51 @@ class _SegmentPlayerScreenState extends State<SegmentPlayerScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text(
+                    "Full audio: 00:00 - ${_formatDuration(totalDuration)}",
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                  const SizedBox(height: 8),
+                  RangeSlider(
+                    values: RangeValues(
+                      tempStart.inMilliseconds
+                          .clamp(0, totalDuration.inMilliseconds)
+                          .toDouble(),
+                      tempEnd.inMilliseconds
+                          .clamp(0, totalDuration.inMilliseconds)
+                          .toDouble(),
+                    ),
+                    min: 0,
+                    max: totalDuration.inMilliseconds.toDouble(),
+                    activeColor: const Color(0xFF1DB954),
+                    inactiveColor: Colors.grey[800],
+                    labels: RangeLabels(
+                      _formatDuration(tempStart),
+                      _formatDuration(tempEnd),
+                    ),
+                    onChanged: (values) {
+                      setModalState(() {
+                        int startMs = values.start.round();
+                        int endMs = values.end.round();
+
+                        if (endMs - startMs < minGapMs) {
+                          if (endMs + minGapMs <=
+                              totalDuration.inMilliseconds) {
+                            endMs = startMs + minGapMs;
+                          } else {
+                            startMs = (endMs - minGapMs).clamp(
+                              0,
+                              totalDuration.inMilliseconds,
+                            );
+                          }
+                        }
+
+                        tempStart = Duration(milliseconds: startMs);
+                        tempEnd = Duration(milliseconds: endMs);
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
                     "Start: ${_formatDuration(tempStart)}",
                     style: const TextStyle(color: Colors.grey),
                   ),
@@ -2365,9 +2416,15 @@ class _SegmentPlayerScreenState extends State<SegmentPlayerScreen> {
                     onPressed: () {
                       setModalState(() {
                         tempStart = _position;
+                        if (tempStart > totalDuration) {
+                          tempStart = totalDuration;
+                        }
                         if (tempEnd <= tempStart) {
-                          tempEnd =
-                              tempStart + const Duration(milliseconds: 500);
+                          final candidate =
+                              tempStart + Duration(milliseconds: minGapMs);
+                          tempEnd = candidate > totalDuration
+                              ? totalDuration
+                              : candidate;
                         }
                       });
                     },
@@ -2390,9 +2447,12 @@ class _SegmentPlayerScreenState extends State<SegmentPlayerScreen> {
                     onPressed: () {
                       setModalState(() {
                         tempEnd = _position;
+                        if (tempEnd > totalDuration) {
+                          tempEnd = totalDuration;
+                        }
                         if (tempEnd <= tempStart) {
                           tempStart =
-                              tempEnd - const Duration(milliseconds: 500);
+                              tempEnd - Duration(milliseconds: minGapMs);
                           if (tempStart < Duration.zero)
                             tempStart = Duration.zero;
                         }
