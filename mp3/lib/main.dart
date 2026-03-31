@@ -1,10 +1,12 @@
 ﻿import 'dart:convert';
 import 'dart:math';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'quran_browser.dart';
@@ -43,17 +45,20 @@ class SavedAudioEntry {
   final String path;
   String name;
   List<LoopBookmark> segments;
+  String? groupId;
 
   SavedAudioEntry({
     required this.path,
     required this.name,
     List<LoopBookmark>? segments,
+    this.groupId,
   }) : segments = segments ?? [];
 
   Map<String, dynamic> toJson() => {
     'path': path,
     'name': name,
     'segments': segments.map((s) => s.toJson()).toList(),
+    'groupId': groupId,
   };
 
   factory SavedAudioEntry.fromJson(Map<String, dynamic> json) =>
@@ -63,13 +68,49 @@ class SavedAudioEntry {
         segments: (json['segments'] as List)
             .map((s) => LoopBookmark.fromJson(s as Map<String, dynamic>))
             .toList(),
+        groupId: json['groupId'],
       );
+}
+
+class AudioGroup {
+  final String id;
+  String name;
+  bool isExpanded;
+
+  AudioGroup({required this.id, required this.name, this.isExpanded = true});
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'isExpanded': isExpanded,
+  };
+
+  factory AudioGroup.fromJson(Map<String, dynamic> json) => AudioGroup(
+    id: json['id'],
+    name: json['name'],
+    isExpanded: json['isExpanded'] ?? true,
+  );
 }
 
 // --- MAIN APP ---
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final isMobile =
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+  if (isMobile) {
+    try {
+      await JustAudioBackground.init(
+        androidNotificationChannelId: 'com.mp360.audio.channel',
+        androidNotificationChannelName: 'MP360 Playback',
+        androidNotificationOngoing: true,
+      );
+    } catch (e) {
+      debugPrint('JustAudioBackground initialization failed: $e');
+    }
+  }
   runApp(const AudioRepeaterApp());
 }
 
@@ -114,6 +155,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
   SharedPreferences? _prefs;
 
   List<SavedAudioEntry> _library = [];
+  List<AudioGroup> _audioGroups = [];
   SavedAudioEntry? _currentEntry;
 
   bool _isPlaying = false;
@@ -126,6 +168,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
 
   List<double> _waveformSamples = [];
   String _segmentSearchQuery = "";
+  int _segmentListFlex = 5;
 
   @override
   void initState() {
@@ -176,10 +219,19 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
 
   void _loadLibrary() {
     final libraryJson = _prefs?.getString('library');
+    final groupsJson = _prefs?.getString('audioGroups');
+
     if (libraryJson != null) {
       final List decoded = jsonDecode(libraryJson);
       setState(() {
         _library = decoded.map((e) => SavedAudioEntry.fromJson(e)).toList();
+      });
+    }
+
+    if (groupsJson != null) {
+      final List decoded = jsonDecode(groupsJson);
+      setState(() {
+        _audioGroups = decoded.map((e) => AudioGroup.fromJson(e)).toList();
       });
     }
   }
@@ -187,6 +239,9 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
   Future<void> _saveLibrary() async {
     final libraryJson = jsonEncode(_library.map((e) => e.toJson()).toList());
     await _prefs?.setString('library', libraryJson);
+
+    final groupsJson = jsonEncode(_audioGroups.map((g) => g.toJson()).toList());
+    await _prefs?.setString('audioGroups', groupsJson);
   }
 
   void _openOnlineQuranBrowser() async {
@@ -233,11 +288,22 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
 
   Future<void> _loadFile(String path, String name) async {
     try {
-      if (path.startsWith('http://') || path.startsWith('https://')) {
-        await _player.setUrl(path);
-      } else {
-        await _player.setFilePath(path);
-      }
+      final sourceUri =
+          path.startsWith('http://') || path.startsWith('https://')
+          ? Uri.parse(path)
+          : Uri.file(path);
+
+      await _player.setAudioSource(
+        AudioSource.uri(
+          sourceUri,
+          tag: MediaItem(
+            id: path,
+            title: name,
+            artist: 'MP360',
+            album: 'Audio Repeater',
+          ),
+        ),
+      );
 
       // Update library
       int index = _library.indexWhere((e) => e.path == path);
@@ -465,6 +531,61 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
     );
   }
 
+  void _moveAudioToGroup(SavedAudioEntry entry) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF181818),
+        title: const Text(
+          'Move to Group',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: SizedBox(
+          width: 300,
+          height: 200,
+          child: ListView(
+            children: [
+              ListTile(
+                title: const Text(
+                  'No Group',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  setState(() {
+                    entry.groupId = null;
+                  });
+                  _saveLibrary();
+                  Navigator.pop(context);
+                },
+              ),
+              ..._audioGroups.map((group) {
+                return ListTile(
+                  title: Text(
+                    group.name,
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                  onTap: () {
+                    setState(() {
+                      entry.groupId = group.id;
+                    });
+                    _saveLibrary();
+                    Navigator.pop(context);
+                  },
+                );
+              }).toList(),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            child: const Text('CANCEL', style: TextStyle(color: Colors.grey)),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _editAudioName() {
     if (_currentEntry == null) return;
 
@@ -520,6 +641,126 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
     );
   }
 
+  void _createNewGroup() {
+    TextEditingController controller = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF181818),
+        title: const Text(
+          'Create New Group',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: TextField(
+          controller: controller,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: "Group name",
+            hintStyle: TextStyle(color: Colors.grey),
+            enabledBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.grey),
+            ),
+            focusedBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Color(0xFF1DB954)),
+            ),
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            child: const Text('CANCEL', style: TextStyle(color: Colors.grey)),
+            onPressed: () => Navigator.pop(context),
+          ),
+          TextButton(
+            child: const Text(
+              'CREATE',
+              style: TextStyle(color: Color(0xFF1DB954)),
+            ),
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                setState(() {
+                  _audioGroups.add(
+                    AudioGroup(
+                      id: DateTime.now().millisecondsSinceEpoch.toString(),
+                      name: controller.text.trim(),
+                    ),
+                  );
+                });
+                _saveLibrary();
+              }
+              Navigator.pop(context);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _renameGroup(AudioGroup group) {
+    TextEditingController controller = TextEditingController(text: group.name);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF181818),
+        title: const Text(
+          'Rename Group',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: TextField(
+          controller: controller,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: "Group name",
+            hintStyle: TextStyle(color: Colors.grey),
+            enabledBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.grey),
+            ),
+            focusedBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Color(0xFF1DB954)),
+            ),
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            child: const Text('CANCEL', style: TextStyle(color: Colors.grey)),
+            onPressed: () => Navigator.pop(context),
+          ),
+          TextButton(
+            child: const Text(
+              'RENAME',
+              style: TextStyle(color: Color(0xFF1DB954)),
+            ),
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                setState(() {
+                  group.name = controller.text.trim();
+                });
+                _saveLibrary();
+              }
+              Navigator.pop(context);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteGroup(AudioGroup group) {
+    // Move all items in group to ungrouped
+    for (var item in _library) {
+      if (item.groupId == group.id) {
+        item.groupId = null;
+      }
+    }
+    setState(() {
+      _audioGroups.removeWhere((g) => g.id == group.id);
+    });
+    _saveLibrary();
+  }
+
   void _openLibraryPanel() {
     String librarySearchQuery = "";
     showModalBottomSheet(
@@ -532,14 +773,6 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            final filteredLibrary = _library
-                .where(
-                  (e) => e.name.toLowerCase().contains(
-                    librarySearchQuery.toLowerCase(),
-                  ),
-                )
-                .toList();
-
             return FractionallySizedBox(
               heightFactor: 0.72,
               child: Container(
@@ -570,110 +803,139 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          SizedBox(
-                            width: 150,
-                            child: TextField(
-                              decoration: InputDecoration(
-                                hintText: "Search...",
-                                hintStyle: const TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: 13,
+                          Row(
+                            children: [
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.add_circle,
+                                  color: Color(0xFF1DB954),
+                                  size: 24,
                                 ),
-                                isDense: true,
-                                prefixIcon: const Icon(
-                                  Icons.search,
-                                  size: 16,
-                                  color: Colors.grey,
-                                ),
-                                contentPadding: EdgeInsets.zero,
-                                filled: true,
-                                fillColor: const Color(0xFF282828),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(20),
-                                  borderSide: BorderSide.none,
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  _createNewGroup();
+                                },
+                              ),
+                              SizedBox(
+                                width: 120,
+                                child: TextField(
+                                  decoration: InputDecoration(
+                                    hintText: "Search...",
+                                    hintStyle: const TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 13,
+                                    ),
+                                    isDense: true,
+                                    prefixIcon: const Icon(
+                                      Icons.search,
+                                      size: 16,
+                                      color: Colors.grey,
+                                    ),
+                                    contentPadding: EdgeInsets.zero,
+                                    filled: true,
+                                    fillColor: const Color(0xFF282828),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(20),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                  ),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                  ),
+                                  onChanged: (val) {
+                                    setModalState(
+                                      () => librarySearchQuery = val,
+                                    );
+                                  },
                                 ),
                               ),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 14,
-                              ),
-                              onChanged: (val) {
-                                setModalState(() => librarySearchQuery = val);
-                              },
-                            ),
+                            ],
                           ),
                         ],
                       ),
                     ),
                     Expanded(
-                      child: filteredLibrary.isEmpty
-                          ? const Center(
-                              child: Text(
-                                "No items found.",
-                                style: TextStyle(color: Colors.grey),
-                              ),
-                            )
-                          : ListView.builder(
-                              itemCount: filteredLibrary.length,
-                              itemBuilder: (context, index) {
-                                final item = filteredLibrary[index];
+                      child: ListView.builder(
+                        itemCount:
+                            _audioGroups.length +
+                            (_library.where((e) => e.groupId == null).length > 0
+                                ? 1
+                                : 0),
+                        itemBuilder: (context, index) {
+                          // Ungrouped items at the top
+                          if (index == 0 &&
+                              _library
+                                  .where((e) => e.groupId == null)
+                                  .isNotEmpty) {
+                            final ungroupedItems = _library
+                                .where(
+                                  (e) =>
+                                      e.groupId == null &&
+                                      e.name.toLowerCase().contains(
+                                        librarySearchQuery.toLowerCase(),
+                                      ),
+                                )
+                                .toList();
+
+                            return Column(
+                              children: ungroupedItems.map((item) {
                                 return Container(
                                   margin: const EdgeInsets.symmetric(
                                     horizontal: 12,
                                     vertical: 4,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF121212),
-                                    borderRadius: BorderRadius.circular(14),
+                                    color: const Color(0xFF181818),
+                                    borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: ListTile(
                                     leading: const Icon(
                                       Icons.album,
                                       color: Color(0xFF1DB954),
                                     ),
-                                    title: Text(
-                                      item.name,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
+                                    title: Text(item.name),
                                     subtitle: Text(
-                                      "${item.segments.length} segments saved",
+                                      "${item.segments.length} segments",
                                       style: const TextStyle(
                                         color: Colors.grey,
                                       ),
                                     ),
-                                    trailing: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        IconButton(
-                                          icon: const Icon(
-                                            Icons.edit,
-                                            color: Colors.grey,
-                                            size: 20,
+                                    trailing: SizedBox(
+                                      width: 80,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.edit,
+                                              color: Colors.grey,
+                                              size: 18,
+                                            ),
+                                            onPressed: () {
+                                              _editLibraryAudioName(item);
+                                            },
                                           ),
-                                          onPressed: () {
-                                            _editLibraryAudioName(item);
-                                          },
-                                        ),
-                                        IconButton(
-                                          icon: const Icon(
-                                            Icons.delete,
-                                            color: Colors.redAccent,
-                                            size: 20,
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.delete,
+                                              color: Colors.redAccent,
+                                              size: 18,
+                                            ),
+                                            onPressed: () {
+                                              setState(() {
+                                                _library.remove(item);
+                                                if (_currentEntry == item) {
+                                                  _currentEntry = null;
+                                                  _player.stop();
+                                                }
+                                              });
+                                              _saveLibrary();
+                                              setModalState(() {});
+                                            },
                                           ),
-                                          onPressed: () {
-                                            setState(() {
-                                              _library.remove(item);
-                                              if (_currentEntry == item) {
-                                                _currentEntry = null;
-                                                _player.stop();
-                                              }
-                                            });
-                                            _saveLibrary();
-                                            setModalState(() {});
-                                          },
-                                        ),
-                                      ],
+                                        ],
+                                      ),
                                     ),
                                     onTap: () {
                                       Navigator.pop(context);
@@ -681,8 +943,163 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                     },
                                   ),
                                 );
-                              },
-                            ),
+                              }).toList(),
+                            );
+                          }
+
+                          // Groups
+                          final groupIndex =
+                              _library
+                                  .where((e) => e.groupId == null)
+                                  .isNotEmpty
+                              ? index - 1
+                              : index;
+                          if (groupIndex < 0 ||
+                              groupIndex >= _audioGroups.length) {
+                            return const SizedBox.shrink();
+                          }
+
+                          final group = _audioGroups[groupIndex];
+                          final groupItems = _library
+                              .where(
+                                (e) =>
+                                    e.groupId == group.id &&
+                                    e.name.toLowerCase().contains(
+                                      librarySearchQuery.toLowerCase(),
+                                    ),
+                              )
+                              .toList();
+
+                          return Column(
+                            children: [
+                              ListTile(
+                                leading: Icon(
+                                  group.isExpanded
+                                      ? Icons.folder_open
+                                      : Icons.folder,
+                                  color: const Color(0xFF1DB954),
+                                ),
+                                title: Text(
+                                  group.name,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                subtitle: Text("${groupItems.length} items"),
+                                trailing: SizedBox(
+                                  width: 120,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.edit,
+                                          color: Colors.grey,
+                                          size: 18,
+                                        ),
+                                        onPressed: () {
+                                          _renameGroup(group);
+                                        },
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.delete,
+                                          color: Colors.redAccent,
+                                          size: 18,
+                                        ),
+                                        onPressed: () {
+                                          _deleteGroup(group);
+                                          setModalState(() {});
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                onTap: () {
+                                  setState(() {
+                                    group.isExpanded = !group.isExpanded;
+                                  });
+                                  setModalState(() {});
+                                },
+                              ),
+                              if (group.isExpanded)
+                                ...groupItems.map((item) {
+                                  return Container(
+                                    margin: const EdgeInsets.only(
+                                      left: 10,
+                                      right: 12,
+                                      top: 2,
+                                      bottom: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF181818),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: ListTile(
+                                      leading: Padding(
+                                        padding: const EdgeInsets.only(
+                                          left: 12.0,
+                                        ),
+                                        child: Icon(
+                                          Icons.music_note,
+                                          color: Colors.grey[600],
+                                          size: 18,
+                                        ),
+                                      ),
+                                      title: Text(item.name),
+                                      subtitle: Text(
+                                        "${item.segments.length} segments",
+                                        style: const TextStyle(
+                                          color: Colors.grey,
+                                        ),
+                                      ),
+                                      trailing: SizedBox(
+                                        width: 80,
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            IconButton(
+                                              icon: const Icon(
+                                                Icons.edit,
+                                                color: Colors.grey,
+                                                size: 18,
+                                              ),
+                                              onPressed: () {
+                                                _editLibraryAudioName(item);
+                                              },
+                                            ),
+                                            IconButton(
+                                              icon: const Icon(
+                                                Icons.delete,
+                                                color: Colors.redAccent,
+                                                size: 18,
+                                              ),
+                                              onPressed: () {
+                                                setState(() {
+                                                  _library.remove(item);
+                                                  if (_currentEntry == item) {
+                                                    _currentEntry = null;
+                                                    _player.stop();
+                                                  }
+                                                });
+                                                _saveLibrary();
+                                                setModalState(() {});
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      onTap: () {
+                                        Navigator.pop(context);
+                                        _loadFile(item.path, item.name);
+                                      },
+                                    ),
+                                  );
+                                }),
+                            ],
+                          );
+                        },
+                      ),
                     ),
                   ],
                 ),
@@ -725,502 +1142,500 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: const Color(0xFF121212),
-      child: Scaffold(
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
         backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          title: GestureDetector(
-            onTap: _editAudioName,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: Text(
-                    _currentEntry?.name ?? "No Audio Loaded",
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (_currentEntry != null) ...[
-                  const SizedBox(width: 8),
-                  const Icon(Icons.edit, size: 16, color: Colors.grey),
-                ],
-              ],
-            ),
-          ),
-          leading: IconButton(
-            icon: const Icon(Icons.menu),
-            onPressed: _openLibraryPanel,
-          ),
-          actions: [
-            IconButton(
-              tooltip: "Browse Quran API",
-              icon: const Icon(Icons.cloud_outlined, color: Colors.white),
-              onPressed: _openOnlineQuranBrowser,
-            ),
-            IconButton(
-              icon: const Icon(Icons.file_upload, color: Color(0xFF1DB954)),
-              onPressed: _importAudio,
-            ),
-          ],
-        ),
-        body: SafeArea(
-          child: Column(
+        elevation: 0,
+        title: GestureDetector(
+          onTap: _editAudioName,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              // Upper Workspace: Waveform & Playback Controls
               Flexible(
-                fit: FlexFit.loose,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                  child: SingleChildScrollView(
-                    physics: const ClampingScrollPhysics(),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Waveform Container
-                        GestureDetector(
-                          onTapDown: (details) {
-                            if (_duration == Duration.zero) return;
-                            final percent =
-                                details.localPosition.dx /
-                                MediaQuery.of(context).size.width;
-                            final newPos = Duration(
-                              milliseconds: (_duration.inMilliseconds * percent)
-                                  .toInt(),
-                            );
-                            _player.seek(newPos);
-                          },
-                          child: Container(
-                            height: 100,
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF181818).withAlpha(230),
-                              borderRadius: BorderRadius.circular(16),
+                child: Text(
+                  _currentEntry?.name ?? "No Audio Loaded",
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (_currentEntry != null) ...[
+                const SizedBox(width: 8),
+                const Icon(Icons.edit, size: 16, color: Colors.grey),
+              ],
+            ],
+          ),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.menu),
+          onPressed: _openLibraryPanel,
+        ),
+        actions: [
+          IconButton(
+            tooltip: "Browse Quran API",
+            icon: const Icon(Icons.cloud_outlined, color: Colors.white),
+            onPressed: _openOnlineQuranBrowser,
+          ),
+          IconButton(
+            icon: const Icon(Icons.file_upload, color: Color(0xFF1DB954)),
+            onPressed: _importAudio,
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Upper Workspace: Waveform & Playback Controls
+            Flexible(
+              flex: 10 - _segmentListFlex,
+              fit: FlexFit.loose,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                child: SingleChildScrollView(
+                  physics: const ClampingScrollPhysics(),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Waveform Container
+                      GestureDetector(
+                        onTapDown: (details) {
+                          if (_duration == Duration.zero) return;
+                          final percent =
+                              details.localPosition.dx /
+                              MediaQuery.of(context).size.width;
+                          final newPos = Duration(
+                            milliseconds: (_duration.inMilliseconds * percent)
+                                .toInt(),
+                          );
+                          _player.seek(newPos);
+                        },
+                        child: Container(
+                          height: 72,
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF181818).withAlpha(230),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: CustomPaint(
+                            painter: _WaveformPainter(
+                              samples: _waveformSamples,
+                              positionPercent: _duration.inMilliseconds > 0
+                                  ? _position.inMilliseconds /
+                                        _duration.inMilliseconds
+                                  : 0,
+                              loopStartPercent: _duration.inMilliseconds > 0
+                                  ? _loopStart.inMilliseconds /
+                                        _duration.inMilliseconds
+                                  : 0,
+                              loopEndPercent: _duration.inMilliseconds > 0
+                                  ? _loopEnd.inMilliseconds /
+                                        _duration.inMilliseconds
+                                  : 1.0,
                             ),
-                            child: CustomPaint(
-                              painter: _WaveformPainter(
-                                samples: _waveformSamples,
-                                positionPercent: _duration.inMilliseconds > 0
-                                    ? _position.inMilliseconds /
-                                          _duration.inMilliseconds
-                                    : 0,
-                                loopStartPercent: _duration.inMilliseconds > 0
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Range Slider
+                      SizedBox(
+                        height: 88,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            RangeSlider(
+                              values: RangeValues(
+                                _duration.inMilliseconds > 0
                                     ? _loopStart.inMilliseconds /
                                           _duration.inMilliseconds
                                     : 0,
-                                loopEndPercent: _duration.inMilliseconds > 0
+                                _duration.inMilliseconds > 0
                                     ? _loopEnd.inMilliseconds /
                                           _duration.inMilliseconds
                                     : 1.0,
                               ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-
-                        // Range Slider
-                        SizedBox(
-                          height: 120,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              RangeSlider(
-                                values: RangeValues(
-                                  _duration.inMilliseconds > 0
-                                      ? _loopStart.inMilliseconds /
-                                            _duration.inMilliseconds
-                                      : 0,
-                                  _duration.inMilliseconds > 0
-                                      ? _loopEnd.inMilliseconds /
-                                            _duration.inMilliseconds
-                                      : 1.0,
-                                ),
-                                min: 0.0,
-                                max: 1.0,
-                                activeColor: const Color(0xFF1DB954),
-                                inactiveColor: Colors.grey[800],
-                                onChanged: (values) {
-                                  setState(() {
-                                    _loopStart = Duration(
-                                      milliseconds:
-                                          (_duration.inMilliseconds *
-                                                  values.start)
-                                              .toInt(),
-                                    );
-                                    _loopEnd = Duration(
-                                      milliseconds:
-                                          (_duration.inMilliseconds *
-                                                  values.end)
-                                              .toInt(),
-                                    );
-                                  });
-                                  if (_position < _loopStart ||
-                                      _position > _loopEnd) {
-                                    _player.seek(_loopStart);
-                                  }
-                                },
-                              ),
-
-                              // Timestamps
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16.0,
-                                ),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      _formatDuration(_loopStart),
-                                      style: const TextStyle(
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                    Text(
-                                      _formatDuration(_loopEnd),
-                                      style: const TextStyle(
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-
-                        // Set Bounds Controls
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            _buildControlBtn("Set Start", () {
-                              HapticFeedback.mediumImpact();
-                              setState(() {
-                                _loopStart = _position;
-                                if (_loopStart > _loopEnd) _loopEnd = _duration;
-                              });
-                            }),
-                            _buildControlBtn("Set End", () {
-                              HapticFeedback.mediumImpact();
-                              setState(() {
-                                _loopEnd = _position;
-                                if (_loopEnd < _loopStart) {
-                                  _loopStart = Duration.zero;
+                              min: 0.0,
+                              max: 1.0,
+                              activeColor: const Color(0xFF1DB954),
+                              inactiveColor: Colors.grey[800],
+                              onChanged: (values) {
+                                setState(() {
+                                  _loopStart = Duration(
+                                    milliseconds:
+                                        (_duration.inMilliseconds *
+                                                values.start)
+                                            .toInt(),
+                                  );
+                                  _loopEnd = Duration(
+                                    milliseconds:
+                                        (_duration.inMilliseconds * values.end)
+                                            .toInt(),
+                                  );
+                                });
+                                if (_position < _loopStart ||
+                                    _position > _loopEnd) {
+                                  _player.seek(_loopStart);
                                 }
-                              });
-                            }),
+                              },
+                            ),
+
+                            // Timestamps
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16.0,
+                              ),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    _formatDuration(_loopStart),
+                                    style: const TextStyle(color: Colors.grey),
+                                  ),
+                                  Text(
+                                    _formatDuration(_loopEnd),
+                                    style: const TextStyle(color: Colors.grey),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ],
                         ),
-                        const SizedBox(height: 12),
+                      ),
+                      const SizedBox(height: 6),
 
-                        // Main Controls (+-5s seek around play button)
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            IconButton(
+                      // Set Bounds Controls
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _buildControlBtn("Set Start", () {
+                            HapticFeedback.mediumImpact();
+                            setState(() {
+                              _loopStart = _position;
+                              if (_loopStart > _loopEnd) _loopEnd = _duration;
+                            });
+                          }),
+                          _buildControlBtn("Set End", () {
+                            HapticFeedback.mediumImpact();
+                            setState(() {
+                              _loopEnd = _position;
+                              if (_loopEnd < _loopStart) {
+                                _loopStart = Duration.zero;
+                              }
+                            });
+                          }),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Main Controls (+-5s seek around play button)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          IconButton(
+                            icon: Icon(
+                              _isLooping ? Icons.repeat_on : Icons.repeat,
+                              color: _isLooping
+                                  ? const Color(0xFF1DB954)
+                                  : Colors.grey,
+                              size: 22,
+                            ),
+                            onPressed: () {
+                              HapticFeedback.selectionClick();
+                              setState(() => _isLooping = !_isLooping);
+                            },
+                          ),
+                          const SizedBox(width: 10),
+
+                          IconButton(
+                            iconSize: 26,
+                            icon: const Icon(
+                              Icons.fast_rewind,
+                              color: Colors.white,
+                            ),
+                            onPressed: () {
+                              HapticFeedback.selectionClick();
+                              _seekBy(const Duration(seconds: -5));
+                            },
+                          ),
+
+                          Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 6),
+                            decoration: const BoxDecoration(
+                              color: Color(0xFF1DB954),
+                              shape: BoxShape.circle,
+                            ),
+                            child: IconButton(
+                              iconSize: 40,
+                              padding: const EdgeInsets.all(9),
                               icon: Icon(
-                                _isLooping ? Icons.repeat_on : Icons.repeat,
-                                color: _isLooping
-                                    ? const Color(0xFF1DB954)
-                                    : Colors.grey,
-                                size: 28,
+                                _isPlaying ? Icons.pause : Icons.play_arrow,
+                                color: Colors.black,
                               ),
                               onPressed: () {
-                                HapticFeedback.selectionClick();
-                                setState(() => _isLooping = !_isLooping);
+                                HapticFeedback.mediumImpact();
+                                _isPlaying ? _player.pause() : _player.play();
                               },
                             ),
-                            const SizedBox(width: 16),
+                          ),
 
-                            IconButton(
-                              iconSize: 32,
-                              icon: const Icon(
-                                Icons.fast_rewind,
-                                color: Colors.white,
-                              ),
-                              onPressed: () {
-                                HapticFeedback.selectionClick();
-                                _seekBy(const Duration(seconds: -5));
-                              },
+                          IconButton(
+                            iconSize: 26,
+                            icon: const Icon(
+                              Icons.fast_forward,
+                              color: Colors.white,
                             ),
+                            onPressed: () {
+                              HapticFeedback.selectionClick();
+                              _seekBy(const Duration(seconds: 5));
+                            },
+                          ),
 
-                            Container(
-                              margin: const EdgeInsets.symmetric(horizontal: 8),
-                              decoration: const BoxDecoration(
-                                color: Color(0xFF1DB954),
-                                shape: BoxShape.circle,
-                              ),
-                              child: IconButton(
-                                iconSize: 48,
-                                padding: const EdgeInsets.all(12),
-                                icon: Icon(
-                                  _isPlaying ? Icons.pause : Icons.play_arrow,
-                                  color: Colors.black,
-                                ),
-                                onPressed: () {
-                                  HapticFeedback.mediumImpact();
-                                  _isPlaying ? _player.pause() : _player.play();
-                                },
+                          const SizedBox(width: 10),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.bookmark_add,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                            onPressed: _currentEntry != null
+                                ? _saveSegment
+                                : null,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      // Overall Progress Slider (Voice Tracer)
+                      SizedBox(
+                        height: 18,
+                        child: SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            activeTrackColor: const Color(0xFF1DB954),
+                            inactiveTrackColor: Colors.grey[800],
+                            thumbColor: Colors.white,
+                            trackHeight: 3.0,
+                            thumbShape: const RoundSliderThumbShape(
+                              enabledThumbRadius: 5.0,
+                            ),
+                            overlayShape: const RoundSliderOverlayShape(
+                              overlayRadius: 10.0,
+                            ),
+                          ),
+                          child: Slider(
+                            value: _duration.inMilliseconds > 0
+                                ? _position.inMilliseconds /
+                                      _duration.inMilliseconds
+                                : 0.0,
+                            onChanged: (value) {
+                              final newPos = Duration(
+                                milliseconds: (_duration.inMilliseconds * value)
+                                    .toInt(),
+                              );
+                              _player.seek(newPos);
+                            },
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              _formatDuration(_position),
+                              style: const TextStyle(
+                                color: Colors.grey,
+                                fontSize: 10,
+                                height: 1.0,
                               ),
                             ),
-
-                            IconButton(
-                              iconSize: 32,
-                              icon: const Icon(
-                                Icons.fast_forward,
-                                color: Colors.white,
+                            Text(
+                              _formatDuration(_duration),
+                              style: const TextStyle(
+                                color: Colors.grey,
+                                fontSize: 10,
+                                height: 1.0,
                               ),
-                              onPressed: () {
-                                HapticFeedback.selectionClick();
-                                _seekBy(const Duration(seconds: 5));
-                              },
-                            ),
-
-                            const SizedBox(width: 16),
-                            IconButton(
-                              icon: const Icon(
-                                Icons.bookmark_add,
-                                color: Colors.white,
-                                size: 28,
-                              ),
-                              onPressed: _currentEntry != null
-                                  ? _saveSegment
-                                  : null,
                             ),
                           ],
                         ),
-                        const SizedBox(height: 0),
-                        // Overall Progress Slider (Voice Tracer)
-                        SizedBox(
-                          height: 24,
-                          child: SliderTheme(
-                            data: SliderTheme.of(context).copyWith(
-                              activeTrackColor: const Color(0xFF1DB954),
-                              inactiveTrackColor: Colors.grey[800],
-                              thumbColor: Colors.white,
-                              trackHeight: 4.0,
-                              thumbShape: const RoundSliderThumbShape(
-                                enabledThumbRadius: 6.0,
-                              ),
-                              overlayShape: const RoundSliderOverlayShape(
-                                overlayRadius: 14.0,
-                              ),
-                            ),
-                            child: Slider(
-                              value: _duration.inMilliseconds > 0
-                                  ? _position.inMilliseconds /
-                                        _duration.inMilliseconds
-                                  : 0.0,
-                              onChanged: (value) {
-                                final newPos = Duration(
-                                  milliseconds:
-                                      (_duration.inMilliseconds * value)
-                                          .toInt(),
-                                );
-                                _player.seek(newPos);
-                              },
-                            ),
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                _formatDuration(_position),
-                                style: const TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: 12,
-                                  height: 1.0,
-                                ),
-                              ),
-                              Text(
-                                _formatDuration(_duration),
-                                style: const TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: 12,
-                                  height: 1.0,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            GestureDetector(
+              onVerticalDragUpdate: (details) {
+                setState(() {
+                  final updated = (_segmentListFlex - (details.delta.dy / 18))
+                      .round();
+                  _segmentListFlex = updated.clamp(3, 8);
+                });
+              },
+              child: Padding(
+                padding: const EdgeInsets.only(top: 4, bottom: 2),
+                child: Center(
+                  child: Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[700],
+                      borderRadius: BorderRadius.circular(999),
                     ),
                   ),
                 ),
               ),
+            ),
 
-              // Lower Workspace: Segment List
-              Expanded(
-                child: Container(
-                  decoration: const BoxDecoration(color: Color(0xFF121212)),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              "Saved Segments",
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
+            // Lower Workspace: Segment List
+            Expanded(
+              flex: _segmentListFlex,
+              child: Container(
+                decoration: const BoxDecoration(color: Color(0xFF121212)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            "Saved Segments",
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          if (_currentEntry != null &&
+                              _currentEntry!.segments.isNotEmpty)
+                            SizedBox(
+                              width: 140,
+                              child: TextField(
+                                decoration: InputDecoration(
+                                  hintText: "Search...",
+                                  hintStyle: const TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 13,
+                                  ),
+                                  isDense: true,
+                                  prefixIcon: const Icon(
+                                    Icons.search,
+                                    size: 16,
+                                    color: Colors.grey,
+                                  ),
+                                  contentPadding: EdgeInsets.zero,
+                                  filled: true,
+                                  fillColor: const Color(0xFF282828),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(20),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                ),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                ),
+                                onChanged: (val) {
+                                  setState(() => _segmentSearchQuery = val);
+                                },
                               ),
                             ),
-                            if (_currentEntry != null &&
-                                _currentEntry!.segments.isNotEmpty)
-                              SizedBox(
-                                width: 140,
-                                child: TextField(
-                                  decoration: InputDecoration(
-                                    hintText: "Search...",
-                                    hintStyle: const TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 13,
-                                    ),
-                                    isDense: true,
-                                    prefixIcon: const Icon(
-                                      Icons.search,
-                                      size: 16,
-                                      color: Colors.grey,
-                                    ),
-                                    contentPadding: EdgeInsets.zero,
-                                    filled: true,
-                                    fillColor: const Color(0xFF282828),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(20),
-                                      borderSide: BorderSide.none,
-                                    ),
-                                  ),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 14,
-                                  ),
-                                  onChanged: (val) {
-                                    setState(() => _segmentSearchQuery = val);
-                                  },
-                                ),
-                              ),
-                          ],
-                        ),
+                        ],
                       ),
-                      Expanded(
-                        child:
-                            _currentEntry == null ||
-                                _currentEntry!.segments.isEmpty
-                            ? const Center(
-                                child: Text(
-                                  "No segments saved yet.",
-                                  style: TextStyle(color: Colors.grey),
-                                ),
-                              )
-                            : Builder(
-                                builder: (context) {
-                                  final filteredSegments = _currentEntry!
-                                      .segments
-                                      .where(
-                                        (s) => s.name.toLowerCase().contains(
-                                          _segmentSearchQuery.toLowerCase(),
-                                        ),
-                                      )
-                                      .toList();
-
-                                  if (filteredSegments.isEmpty) {
-                                    return const Center(
-                                      child: Text(
-                                        "No matching segments.",
-                                        style: TextStyle(color: Colors.grey),
+                    ),
+                    Expanded(
+                      child:
+                          _currentEntry == null ||
+                              _currentEntry!.segments.isEmpty
+                          ? const Center(
+                              child: Text(
+                                "No segments saved yet.",
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                            )
+                          : Builder(
+                              builder: (context) {
+                                final filteredSegments = _currentEntry!.segments
+                                    .where(
+                                      (s) => s.name.toLowerCase().contains(
+                                        _segmentSearchQuery.toLowerCase(),
                                       ),
-                                    );
-                                  }
+                                    )
+                                    .toList();
 
-                                  return ReorderableListView.builder(
-                                    itemCount: filteredSegments.length,
-                                    onReorder: (oldIndex, newIndex) {
-                                      // Disable reordering when filtering since indices won't match
-                                      if (_segmentSearchQuery.isNotEmpty) {
-                                        return;
-                                      }
+                                if (filteredSegments.isEmpty) {
+                                  return const Center(
+                                    child: Text(
+                                      "No matching segments.",
+                                      style: TextStyle(color: Colors.grey),
+                                    ),
+                                  );
+                                }
 
-                                      setState(() {
-                                        if (newIndex > oldIndex) newIndex -= 1;
-                                        final item = _currentEntry!.segments
-                                            .removeAt(oldIndex);
-                                        _currentEntry!.segments.insert(
-                                          newIndex,
-                                          item,
-                                        );
-                                      });
-                                      _upsertAudioEntry();
-                                    },
-                                    itemBuilder: (context, index) {
-                                      final segment = filteredSegments[index];
-                                      final isSelected =
-                                          _loopStart == segment.start &&
-                                          _loopEnd == segment.end;
-                                      final titleColor = isSelected
-                                          ? const Color(0xFF1DB954)
-                                          : Colors.white;
+                                return ReorderableListView.builder(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    10,
+                                    4,
+                                    10,
+                                    8,
+                                  ),
+                                  itemCount: filteredSegments.length,
+                                  onReorder: (oldIndex, newIndex) {
+                                    // Disable reordering when filtering since indices won't match
+                                    if (_segmentSearchQuery.isNotEmpty) {
+                                      return;
+                                    }
 
-                                      return ListTile(
-                                        key: ValueKey(segment.id),
-                                        contentPadding:
-                                            const EdgeInsets.symmetric(
-                                              horizontal: 20,
-                                              vertical: 4,
-                                            ),
-                                        title: Row(
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                segment.name,
-                                                style: TextStyle(
-                                                  color: titleColor,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            ),
-                                            IconButton(
-                                              icon: const Icon(
-                                                Icons.edit,
-                                                color: Colors.grey,
-                                                size: 18,
-                                              ),
-                                              onPressed: () =>
-                                                  _editSegmentName(segment),
-                                            ),
-                                          ],
+                                    setState(() {
+                                      if (newIndex > oldIndex) newIndex -= 1;
+                                      final item = _currentEntry!.segments
+                                          .removeAt(oldIndex);
+                                      _currentEntry!.segments.insert(
+                                        newIndex,
+                                        item,
+                                      );
+                                    });
+                                    _upsertAudioEntry();
+                                  },
+                                  itemBuilder: (context, index) {
+                                    final segment = filteredSegments[index];
+                                    final isSelected =
+                                        _loopStart == segment.start &&
+                                        _loopEnd == segment.end;
+                                    final titleColor = isSelected
+                                        ? const Color(0xFFB8FFCF)
+                                        : Colors.white;
+
+                                    return Container(
+                                      key: ValueKey(segment.id),
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.fromLTRB(
+                                        12,
+                                        10,
+                                        8,
+                                        8,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: isSelected
+                                            ? const Color(0xFF1C3528)
+                                            : const Color(0xFF171717),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: isSelected
+                                              ? const Color(0xFF2FBF6C)
+                                              : const Color(0xFF2A2A2A),
+                                          width: 1.1,
                                         ),
-                                        subtitle: Text(
-                                          "${_formatDuration(segment.start)} - ${_formatDuration(segment.end)}",
-                                          style: TextStyle(
-                                            color: isSelected
-                                                ? const Color(
-                                                    0xFF1DB954,
-                                                  ).withAlpha(204)
-                                                : Colors.grey,
-                                          ),
-                                        ),
-                                        trailing: IconButton(
-                                          icon: const Icon(
-                                            Icons.delete_outline,
-                                            color: Colors.redAccent,
-                                          ),
-                                          onPressed: () =>
-                                              _deleteSegment(segment),
-                                        ),
+                                      ),
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(10),
                                         onTap: () {
                                           _player.seek(segment.start);
                                           _player.play();
@@ -1228,24 +1643,91 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                             _loopStart = segment.start;
                                             _loopEnd = segment.end;
                                           });
-                                          // Find the correct absolute index for the SegmentPlayer
                                           int originalIndex = _currentEntry!
                                               .segments
                                               .indexOf(segment);
                                           _openSegmentPlayer(originalIndex);
                                         },
-                                      );
-                                    },
-                                  );
-                                },
-                              ),
-                      ),
-                    ],
-                  ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    segment.name,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: TextStyle(
+                                                      color: titleColor,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      fontSize: 13,
+                                                    ),
+                                                  ),
+                                                ),
+                                                ReorderableDragStartListener(
+                                                  index: index,
+                                                  child: const Icon(
+                                                    Icons.drag_indicator,
+                                                    color: Colors.grey,
+                                                    size: 18,
+                                                  ),
+                                                ),
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.edit,
+                                                    color: Colors.grey,
+                                                    size: 17,
+                                                  ),
+                                                  onPressed: () =>
+                                                      _editSegmentName(segment),
+                                                ),
+                                              ],
+                                            ),
+                                            Text(
+                                              "${_formatDuration(segment.start)} - ${_formatDuration(segment.end)}",
+                                              style: TextStyle(
+                                                color: isSelected
+                                                    ? const Color(0xFF8EDFAE)
+                                                    : Colors.grey,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 8),
+                                            _buildSegmentRangeBar(
+                                              segment,
+                                              isSelected,
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Align(
+                                              alignment: Alignment.centerRight,
+                                              child: IconButton(
+                                                icon: const Icon(
+                                                  Icons.delete_outline,
+                                                  color: Colors.redAccent,
+                                                  size: 20,
+                                                ),
+                                                onPressed: () =>
+                                                    _deleteSegment(segment),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                );
+                              },
+                            ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -1266,6 +1748,54 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
         ),
       ),
+    );
+  }
+
+  Widget _buildSegmentRangeBar(LoopBookmark segment, bool isSelected) {
+    final totalMs = _duration.inMilliseconds;
+    final start = segment.start.inMilliseconds;
+    final end = segment.end.inMilliseconds;
+
+    double startRatio = 0.0;
+    double endRatio = 1.0;
+    if (totalMs > 0) {
+      startRatio = (start / totalMs).clamp(0.0, 1.0);
+      endRatio = (end / totalMs).clamp(startRatio, 1.0);
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final left = width * startRatio;
+        final right = width * endRatio;
+        final highlightWidth = (right - left).clamp(8.0, width);
+
+        return Container(
+          height: 8,
+          decoration: BoxDecoration(
+            color: const Color(0xFF2A2A2A),
+            borderRadius: BorderRadius.circular(99),
+          ),
+          child: Stack(
+            children: [
+              Positioned(
+                left: left,
+                top: 0,
+                bottom: 0,
+                width: highlightWidth,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? const Color(0xFF45D47F)
+                        : const Color(0xFF1DB954).withAlpha(180),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
