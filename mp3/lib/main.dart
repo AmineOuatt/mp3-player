@@ -167,46 +167,47 @@ class NotificationService {
   }) async {
     _actionCallback = onAction;
 
-    const AndroidNotificationDetails androidDetails =
-        AndroidNotificationDetails(
-          channelId,
-          channelName,
-          importance: Importance.low,
-          priority: Priority.low,
-          showProgress: false,
-          playSound: false,
-          actions: [
-            AndroidNotificationAction(
-              'prev_segment',
-              'Previous',
-              showsUserInterface: false,
-            ),
-            AndroidNotificationAction(
-              'play_pause',
-              isPlaying ? 'Pause' : 'Play',
-              showsUserInterface: false,
-            ),
-            AndroidNotificationAction(
-              'next_segment',
-              'Next',
-              showsUserInterface: false,
-            ),
-            AndroidNotificationAction(
-              'stop',
-              'Stop',
-              showsUserInterface: false,
-            ),
-          ],
-        );
+    final List<AndroidNotificationAction> actions = [
+      const AndroidNotificationAction(
+        'prev_segment',
+        'Previous',
+        showsUserInterface: false,
+      ),
+      AndroidNotificationAction(
+        'play_pause',
+        isPlaying ? 'Pause' : 'Play',
+        showsUserInterface: false,
+      ),
+      const AndroidNotificationAction(
+        'next_segment',
+        'Next',
+        showsUserInterface: false,
+      ),
+      const AndroidNotificationAction(
+        'stop',
+        'Stop',
+        showsUserInterface: false,
+      ),
+    ];
 
-    const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
+    final androidDetails = AndroidNotificationDetails(
+      channelId,
+      channelName,
+      importance: Importance.low,
+      priority: Priority.low,
+      showProgress: false,
+      playSound: false,
+      actions: actions,
+    );
+
+    final iosDetails = DarwinNotificationDetails(
       presentAlert: false,
       presentBadge: false,
       presentSound: false,
       subtitle: subtitle,
     );
 
-    const NotificationDetails details = NotificationDetails(
+    final NotificationDetails details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );
