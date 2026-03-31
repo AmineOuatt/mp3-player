@@ -1,12 +1,10 @@
 ﻿import 'dart:convert';
 import 'dart:math';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'quran_browser.dart';
@@ -96,21 +94,6 @@ class AudioGroup {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final isMobile =
-      !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.android ||
-          defaultTargetPlatform == TargetPlatform.iOS);
-  if (isMobile) {
-    try {
-      await JustAudioBackground.init(
-        androidNotificationChannelId: 'com.mp360.audio.channel',
-        androidNotificationChannelName: 'MP360 Playback',
-        androidNotificationOngoing: true,
-      );
-    } catch (e) {
-      debugPrint('JustAudioBackground initialization failed: $e');
-    }
-  }
   runApp(const AudioRepeaterApp());
 }
 
@@ -293,17 +276,7 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
           ? Uri.parse(path)
           : Uri.file(path);
 
-      await _player.setAudioSource(
-        AudioSource.uri(
-          sourceUri,
-          tag: MediaItem(
-            id: path,
-            title: name,
-            artist: 'MP360',
-            album: 'Audio Repeater',
-          ),
-        ),
-      );
+      await _player.setAudioSource(AudioSource.uri(sourceUri));
 
       // Update library
       int index = _library.indexWhere((e) => e.path == path);
@@ -318,13 +291,17 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
       setState(() {
         _currentEntry = entry;
         _loopStart = Duration.zero;
-        _loopEnd = _duration;
+        _loopEnd = _player.duration ?? _duration;
       });
 
       _saveLibrary();
       _generateWaveform(path);
       _player.play();
     } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not load audio: $e')));
       debugPrint("Error loading file: $e");
     }
   }
@@ -761,6 +738,120 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
     _saveLibrary();
   }
 
+  void _showAddAudiosToGroup(AudioGroup group) {
+    String search = '';
+    final selected = <String>{};
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final filtered = _library
+              .where((a) => a.name.toLowerCase().contains(search.toLowerCase()))
+              .toList();
+
+          return AlertDialog(
+            backgroundColor: const Color(0xFF181818),
+            title: Text(
+              'Add audios to ${group.name}',
+              style: const TextStyle(color: Colors.white),
+            ),
+            content: SizedBox(
+              width: 360,
+              height: 420,
+              child: Column(
+                children: [
+                  TextField(
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      hintText: 'Search audio...',
+                      hintStyle: TextStyle(color: Colors.grey),
+                      prefixIcon: Icon(Icons.search, color: Colors.grey),
+                    ),
+                    onChanged: (value) {
+                      setDialogState(() => search = value);
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'No audio found',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: filtered.length,
+                            itemBuilder: (context, index) {
+                              final item = filtered[index];
+                              final checked = selected.contains(item.path);
+                              return CheckboxListTile(
+                                value: checked,
+                                activeColor: const Color(0xFF1DB954),
+                                title: Text(
+                                  item.name,
+                                  style: const TextStyle(color: Colors.white),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  item.groupId == null
+                                      ? 'Ungrouped'
+                                      : 'In another group',
+                                  style: const TextStyle(color: Colors.grey),
+                                ),
+                                controlAffinity:
+                                    ListTileControlAffinity.leading,
+                                onChanged: (value) {
+                                  setDialogState(() {
+                                    if (value == true) {
+                                      selected.add(item.path);
+                                    } else {
+                                      selected.remove(item.path);
+                                    }
+                                  });
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  'CANCEL',
+                  style: TextStyle(color: Colors.grey),
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    for (final path in selected) {
+                      final idx = _library.indexWhere((a) => a.path == path);
+                      if (idx != -1) {
+                        _library[idx].groupId = group.id;
+                      }
+                    }
+                  });
+                  _saveLibrary();
+                  Navigator.pop(context);
+                },
+                child: const Text(
+                  'ADD',
+                  style: TextStyle(color: Color(0xFF1DB954)),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   void _openLibraryPanel() {
     String librarySearchQuery = "";
     showModalBottomSheet(
@@ -906,33 +997,44 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          IconButton(
+                                          PopupMenuButton<String>(
                                             icon: const Icon(
-                                              Icons.edit,
+                                              Icons.more_vert,
                                               color: Colors.grey,
                                               size: 18,
                                             ),
-                                            onPressed: () {
-                                              _editLibraryAudioName(item);
+                                            color: const Color(0xFF222222),
+                                            onSelected: (value) {
+                                              if (value == 'move') {
+                                                _moveAudioToGroup(item);
+                                              } else if (value == 'edit') {
+                                                _editLibraryAudioName(item);
+                                              } else if (value == 'delete') {
+                                                setState(() {
+                                                  _library.remove(item);
+                                                  if (_currentEntry == item) {
+                                                    _currentEntry = null;
+                                                    _player.stop();
+                                                  }
+                                                });
+                                                _saveLibrary();
+                                                setModalState(() {});
+                                              }
                                             },
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.delete,
-                                              color: Colors.redAccent,
-                                              size: 18,
-                                            ),
-                                            onPressed: () {
-                                              setState(() {
-                                                _library.remove(item);
-                                                if (_currentEntry == item) {
-                                                  _currentEntry = null;
-                                                  _player.stop();
-                                                }
-                                              });
-                                              _saveLibrary();
-                                              setModalState(() {});
-                                            },
+                                            itemBuilder: (context) => const [
+                                              PopupMenuItem(
+                                                value: 'move',
+                                                child: Text('Move to group'),
+                                              ),
+                                              PopupMenuItem(
+                                                value: 'edit',
+                                                child: Text('Rename'),
+                                              ),
+                                              PopupMenuItem(
+                                                value: 'delete',
+                                                child: Text('Delete'),
+                                              ),
+                                            ],
                                           ),
                                         ],
                                       ),
@@ -986,34 +1088,47 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                   ),
                                 ),
                                 subtitle: Text("${groupItems.length} items"),
-                                trailing: SizedBox(
-                                  width: 120,
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.edit,
-                                          color: Colors.grey,
-                                          size: 18,
-                                        ),
-                                        onPressed: () {
-                                          _renameGroup(group);
-                                        },
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.add_circle_outline,
+                                        color: Color(0xFF1DB954),
+                                        size: 20,
                                       ),
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.delete,
-                                          color: Colors.redAccent,
-                                          size: 18,
-                                        ),
-                                        onPressed: () {
+                                      tooltip: 'Add audio to group',
+                                      onPressed: () {
+                                        _showAddAudiosToGroup(group);
+                                      },
+                                    ),
+                                    PopupMenuButton<String>(
+                                      icon: const Icon(
+                                        Icons.more_vert,
+                                        color: Colors.grey,
+                                        size: 18,
+                                      ),
+                                      color: const Color(0xFF222222),
+                                      onSelected: (value) {
+                                        if (value == 'rename') {
+                                          _renameGroup(group);
+                                        } else if (value == 'delete') {
                                           _deleteGroup(group);
                                           setModalState(() {});
-                                        },
-                                      ),
-                                    ],
-                                  ),
+                                        }
+                                      },
+                                      itemBuilder: (context) => const [
+                                        PopupMenuItem(
+                                          value: 'rename',
+                                          child: Text('Rename group'),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'delete',
+                                          child: Text('Delete group'),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ),
                                 onTap: () {
                                   setState(() {
@@ -1053,41 +1168,44 @@ class _AudioLooperScreenState extends State<AudioLooperScreen> {
                                           color: Colors.grey,
                                         ),
                                       ),
-                                      trailing: SizedBox(
-                                        width: 80,
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            IconButton(
-                                              icon: const Icon(
-                                                Icons.edit,
-                                                color: Colors.grey,
-                                                size: 18,
-                                              ),
-                                              onPressed: () {
-                                                _editLibraryAudioName(item);
-                                              },
-                                            ),
-                                            IconButton(
-                                              icon: const Icon(
-                                                Icons.delete,
-                                                color: Colors.redAccent,
-                                                size: 18,
-                                              ),
-                                              onPressed: () {
-                                                setState(() {
-                                                  _library.remove(item);
-                                                  if (_currentEntry == item) {
-                                                    _currentEntry = null;
-                                                    _player.stop();
-                                                  }
-                                                });
-                                                _saveLibrary();
-                                                setModalState(() {});
-                                              },
-                                            ),
-                                          ],
+                                      trailing: PopupMenuButton<String>(
+                                        icon: const Icon(
+                                          Icons.more_vert,
+                                          color: Colors.grey,
+                                          size: 18,
                                         ),
+                                        color: const Color(0xFF222222),
+                                        onSelected: (value) {
+                                          if (value == 'move') {
+                                            _moveAudioToGroup(item);
+                                          } else if (value == 'edit') {
+                                            _editLibraryAudioName(item);
+                                          } else if (value == 'delete') {
+                                            setState(() {
+                                              _library.remove(item);
+                                              if (_currentEntry == item) {
+                                                _currentEntry = null;
+                                                _player.stop();
+                                              }
+                                            });
+                                            _saveLibrary();
+                                            setModalState(() {});
+                                          }
+                                        },
+                                        itemBuilder: (context) => const [
+                                          PopupMenuItem(
+                                            value: 'move',
+                                            child: Text('Move to group'),
+                                          ),
+                                          PopupMenuItem(
+                                            value: 'edit',
+                                            child: Text('Rename'),
+                                          ),
+                                          PopupMenuItem(
+                                            value: 'delete',
+                                            child: Text('Delete'),
+                                          ),
+                                        ],
                                       ),
                                       onTap: () {
                                         Navigator.pop(context);
